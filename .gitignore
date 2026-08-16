@@ -5,3 +5,12 @@ venv/
 .env
 .DS_Store
 .ipynb_checkpoints/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Collected samples and collector logs. This tree holds raw pmset and ioreg
+# output from a personal machine, and later the running application names.
+# None of it belongs in a public repository.
+data/

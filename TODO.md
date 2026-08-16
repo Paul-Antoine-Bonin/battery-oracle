@@ -10,7 +10,7 @@ your real usage and predicts better, then prove it.
 - No data leaves the machine. Say so in the README.
 
 ## Steps
-- [ ] Set up repo, collection script run periodically
+- [x] Set up repo, collection script run periodically
 - [ ] Extract: charge level, cycles, voltage, amperage, temperature if available
 - [ ] Add the context: brightness, foreground applications, CPU load, Wi-Fi
 - [ ] Store as a timestamped time series, one row per sample
@@ -29,4 +29,18 @@ wins.
 ## Traps
 - Full discharge cycles are rare, so the target is the real bottleneck. Start collecting
   early and never interrupt it.
-- Commit nothing containing personal file or application names.
+- Commit nothing containing personal file or application names. `data/` is git-ignored
+  for that reason, and it holds the collector logs too.
+- `ioreg` reports `Amperage` as an unsigned 64 bit integer. While discharging it comes
+  back as 18446744073709550199, not -1417. Convert with two's complement, subtracting
+  2^64 above 2^63, or every discharge sample will look like an enormous charge.
+  `InstantAmperage` has the same problem.
+- `MaxCapacity` is not constant. This battery is at 3522 against a design 4381, so 80.4%
+  health after 728 cycles, and it keeps ageing during the study. Re-read it every
+  sample and compute the charge fraction against the current maximum, never against
+  the design figure.
+- Use launchd, not cron. cron does not fire while the Mac is asleep and never catches
+  up, and the samples around a sleep are the interesting ones.
+- Storage is raw command text, not parsed fields, so a value nobody thought to extract
+  today is still recoverable from today's samples. Cost is about 4.1 KiB per sample,
+  roughly 1.2 MiB a day at one sample every five minutes.
