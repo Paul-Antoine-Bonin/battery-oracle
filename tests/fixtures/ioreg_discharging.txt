@@ -1,0 +1,27 @@
++-o AppleSmartBattery  <class AppleSmartBattery, id 0x100000f2a, registered, matched, active, busy 0 (0 ms), retain 8>
+    {
+      "PostChargeWaitSeconds" = 120
+      "built-in" = Yes
+      "AppleRawAdapterDetails" = ({"AdapterVoltage"=0,"Watts"=0})
+      "AppleRawCurrentCapacity" = 1250
+      "AppleRawMaxCapacity" = 4000
+      "CurrentCapacity" = 31
+      "MaxCapacity" = 100
+      "DesignCapacity" = 5000
+      "NominalChargeCapacity" = 4050
+      "CycleCount" = 500
+      "Voltage" = 11400
+      "Amperage" = 18446744073709550616
+      "InstantAmperage" = 18446744073709550566
+      "Temperature" = 3050
+      "IsCharging" = No
+      "ExternalConnected" = No
+      "FullyCharged" = No
+      "TimeRemaining" = 75
+      "AvgTimeToEmpty" = 75
+      "AvgTimeToFull" = 65535
+      "DeviceName" = "bq40z651"
+      "BatteryData" = {"CycleCount"=500,"DesignCapacity"=5000,"Voltage"=11400}
+      "LegacyBatteryInfo" = {"Amperage"=18446744073709550616,"Capacity"=4000,"Current"=1250,"Voltage"=11400}
+    }
+
