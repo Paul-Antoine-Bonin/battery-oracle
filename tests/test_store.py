@@ -79,6 +79,35 @@ def test_a_line_without_a_timestamp_is_skipped(tmp_path):
     assert report.skipped_lines == 1
 
 
+@pytest.mark.parametrize(
+    "bad_line",
+    [
+        '{"sampled_at": 17}',
+        '["not", "an", "object"]',
+        '"just a string"',
+    ],
+)
+def test_a_line_of_the_wrong_shape_is_skipped(tmp_path, bad_line):
+    append_sample(sample(), root=tmp_path)
+    with day_path(MOMENT, root=tmp_path).open("a", encoding="utf-8") as handle:
+        handle.write(bad_line + "\n")
+
+    report = read_samples(root=tmp_path)
+    assert report.count == 1
+    assert report.skipped_lines == 1
+
+
+def test_a_naive_timestamp_is_skipped_even_with_bounds(tmp_path):
+    # Comparing a naive instant with an aware bound would raise TypeError.
+    append_sample(sample(), root=tmp_path)
+    with day_path(MOMENT, root=tmp_path).open("a", encoding="utf-8") as handle:
+        handle.write('{"sampled_at": "2026-08-16T20:05:00"}\n')
+
+    report = read_samples(root=tmp_path, start=MOMENT - timedelta(days=1))
+    assert report.count == 1
+    assert report.skipped_lines == 1
+
+
 def test_blank_lines_are_not_counted_as_damage(tmp_path):
     append_sample(sample(), root=tmp_path)
     with day_path(MOMENT, root=tmp_path).open("a", encoding="utf-8") as handle:
