@@ -6,7 +6,8 @@ The macOS time-remaining estimate is unstable and often wrong. This repo collect
 the hardware actually reports, alongside the macOS estimate itself, so a model can be
 trained and then compared against that baseline honestly.
 
-No model yet. The collector works and is ready to run.
+No model yet. The collector works and is ready to run, and stored samples parse into
+numbers.
 
 ## Everything stays on this machine
 
@@ -65,8 +66,33 @@ Raw output from two commands, stored verbatim:
 | `pmset -g batt` | percentage, charging state, and the macOS estimate to beat |
 | `ioreg -r -c AppleSmartBattery` | capacity, cycles, voltage, amperage, temperature |
 
-Parsed values come in the next step. Keeping the raw text means a field nobody thought
-to extract today is still recoverable from samples taken today.
+Keeping the raw text means a field nobody thought to extract today is still recoverable
+from samples taken today.
+
+## Parse
+
+`battery.parse` reads that stored text back into numbers. It runs no command, so it
+works the same on a sample from months ago as on a fresh one.
+
+```python
+from battery.parse import parse_sample
+from battery.store import read_samples
+
+rows = [parse_sample(s) for s in read_samples().samples]
+```
+
+Each row has the hardware view (`charge_fraction`, `cycle_count`, `voltage_mv`,
+`amperage_ma`, `power_w`, `temperature_c`, ...) and the macOS view, prefixed `macos_`
+(`macos_percent`, `macos_state`, `macos_estimate_min`). A command that failed leaves
+its half as None, and `ioreg_ok` and `pmset_ok` say which.
+
+- `Amperage` and `InstantAmperage` are converted with two's complement, so negative
+  means discharging.
+- The charge fraction is computed against the maximum capacity read in the same
+  sample. On Apple silicon the mAh figures come from `AppleRawCurrentCapacity` and
+  `AppleRawMaxCapacity`, since `MaxCapacity` there is a percentage.
+- When macOS shows `(no estimate)`, `macos_estimate_min` stays None. Filling it in
+  would give the baseline answers it never gave.
 
 About 4.1 KiB per sample, so roughly 1.2 MiB a day at one sample every five minutes.
 

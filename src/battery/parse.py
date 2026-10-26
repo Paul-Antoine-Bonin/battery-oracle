@@ -145,3 +145,84 @@ def parse_ioreg(text: str) -> BatteryState:
     state.external_connected = _bool(fields, "ExternalConnected")
     state.fully_charged = _bool(fields, "FullyCharged")
     return state
+
+
+_PMSET_SOURCE = re.compile(r"Now drawing from '([^']+)'")
+_PMSET_BATTERY = re.compile(
+    r"-InternalBattery-\d+(?: \([^)]*\))?\s+"   # battery name and id
+    r"(\d+)%;\s*"                                # percentage
+    r"([^;]+?)\s*"                                # state
+    r"(?:;\s*(.*?))?\s*"                          # estimate, when there is one
+    r"(?:present:.*)?$"
+)
+_PMSET_REMAINING = re.compile(r"(\d+):(\d{2}) remaining")
+
+
+@dataclass
+class PmsetState:
+    """What `pmset -g batt` says, including the macOS estimate to beat."""
+
+    power_source: Optional[str] = None       # "Battery Power" or "AC Power"
+    percent: Optional[int] = None
+    state: Optional[str] = None              # discharging, charging, charged, ...
+    estimate_min: Optional[int] = None       # None when macOS gives no estimate
+    has_estimate: bool = False
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def parse_pmset(text: str) -> PmsetState:
+    """Extract the macOS view from `pmset -g batt` output.
+
+    The estimate reads `1:15 remaining` while discharging and charging, and
+    `(no estimate)` for a while after the power source changes. That gap is
+    kept as None: filling it in would hand the baseline numbers macOS never
+    gave. With `AC attached; not charging` the state is `AC attached` and the
+    third field holds no estimate.
+    """
+    out = PmsetState()
+
+    source = _PMSET_SOURCE.search(text)
+    if source:
+        out.power_source = source.group(1)
+
+    for line in text.splitlines():
+        battery = _PMSET_BATTERY.search(line)
+        if not battery:
+            continue
+        out.percent = int(battery.group(1))
+        out.state = battery.group(2)
+        remaining = _PMSET_REMAINING.search(battery.group(3) or "")
+        if remaining:
+            out.estimate_min = int(remaining.group(1)) * 60 + int(remaining.group(2))
+            out.has_estimate = True
+        break
+    return out
+
+
+def parse_sample(sample: dict) -> dict:
+    """One stored sample as a flat dict of numbers, ready for a table row.
+
+    Keys from ioreg keep their BatteryState names, keys from pmset are
+    prefixed `macos_`. A command that failed in that sample leaves its fields
+    as None, and `ioreg_ok` and `pmset_ok` say which half is missing.
+    """
+    commands = sample.get("commands", {})
+    ioreg = commands.get("ioreg_battery", {})
+    pmset = commands.get("pmset_batt", {})
+
+    ioreg_ok = bool(ioreg.get("ok"))
+    pmset_ok = bool(pmset.get("ok"))
+
+    battery = parse_ioreg(ioreg.get("stdout", "") if ioreg_ok else "")
+    macos = parse_pmset(pmset.get("stdout", "") if pmset_ok else "")
+
+    row = {
+        "sampled_at": sample.get("sampled_at"),
+        "ioreg_ok": ioreg_ok,
+        "pmset_ok": pmset_ok,
+    }
+    row.update(battery.to_dict())
+    row.update({f"macos_{key}": value for key, value in macos.to_dict().items()})
+    return row
