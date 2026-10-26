@@ -99,9 +99,16 @@ def read_samples(
                 try:
                     sample = json.loads(line)
                     moment = datetime.fromisoformat(sample["sampled_at"])
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    # A line cut in half by a shutdown, or a sample without a
-                    # usable timestamp. One lost sample, not a lost day.
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                    # A line cut in half by a shutdown, valid JSON that is not
+                    # an object, or a sample without a usable timestamp. One
+                    # lost sample, not a lost day.
+                    skipped += 1
+                    continue
+                if moment.tzinfo is None:
+                    # The collector always writes an offset. A naive timestamp
+                    # cannot be placed in UTC, and comparing it with the bounds
+                    # would raise, so it counts as damage too.
                     skipped += 1
                     continue
                 if start is not None and moment < _as_utc(start):
