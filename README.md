@@ -94,6 +94,10 @@ Each row has the hardware view (`charge_fraction`, `cycle_count`, `voltage_mv`,
 (`macos_percent`, `macos_state`, `macos_estimate_min`). A command that failed leaves
 its half as None, and `ioreg_ok` and `pmset_ok` say which.
 
+The context fields sit alongside: `load_1m`, `load_5m`, `load_15m`, `logical_cpus`,
+`load_per_cpu`, `wifi_on` and `brightness_fraction`. Each is None when its command
+failed or the sample predates it.
+
 - `Amperage` and `InstantAmperage` are converted with two's complement, so negative
   means discharging.
 - The charge fraction is computed against the maximum capacity read in the same
@@ -101,6 +105,8 @@ its half as None, and `ioreg_ok` and `pmset_ok` say which.
   `AppleRawMaxCapacity`, since `MaxCapacity` there is a percentage.
 - When macOS shows `(no estimate)`, `macos_estimate_min` stays None. Filling it in
   would give the baseline answers it never gave.
+- With the lid closed or only an external display, `brightness_fraction` is None,
+  not 0. A missing panel is not a dark one.
 
 About 4.1 KiB per sample, so roughly 1.2 MiB a day at one sample every five minutes.
 

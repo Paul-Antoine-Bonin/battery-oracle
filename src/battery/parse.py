@@ -201,12 +201,109 @@ def parse_pmset(text: str) -> PmsetState:
     return out
 
 
+_LOADAVG = re.compile(r"\{\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\}")
+_WIFI_POWER = re.compile(r"Wi-Fi Power \([^)]*\):\s*(On|Off)\b")
+_BRIGHTNESS = re.compile(r'"brightness"=\{([^}]*)\}')
+_PLIST_INT = re.compile(r'"(\w+)"=(-?\d+)')
+
+
+@dataclass
+class ContextState:
+    """What the machine was doing at the moment of the sample."""
+
+    load_1m: Optional[float] = None
+    load_5m: Optional[float] = None
+    load_15m: Optional[float] = None
+    logical_cpus: Optional[int] = None
+    load_per_cpu: Optional[float] = None     # load_1m over logical_cpus
+    wifi_on: Optional[bool] = None
+    brightness_fraction: Optional[float] = None   # 0.0 to 1.0, built-in panel
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def parse_cpu_load(text: str, state: Optional[ContextState] = None) -> ContextState:
+    """Load averages and core count from `sysctl -n vm.loadavg hw.logicalcpu`.
+
+    The output is `{ 2.15 1.98 1.87 }` on the first line and the core count on
+    the second. Load is also given per core, since a load of 4 means something
+    different on 8 cores than on 4.
+    """
+    state = state or ContextState()
+    loads = _LOADAVG.search(text)
+    if loads:
+        state.load_1m, state.load_5m, state.load_15m = (
+            float(loads.group(i)) for i in (1, 2, 3)
+        )
+    for line in text.splitlines():
+        if line.strip().isdigit():
+            state.logical_cpus = int(line.strip())
+            break
+    if state.load_1m is not None and state.logical_cpus:
+        state.load_per_cpu = state.load_1m / state.logical_cpus
+    return state
+
+
+def parse_wifi_power(text: str, state: Optional[ContextState] = None) -> ContextState:
+    """Whether Wi-Fi is powered, from `networksetup -getairportpower en0`.
+
+    Anything other than a clear On or Off, such as the error printed when en0
+    is not a Wi-Fi interface, leaves `wifi_on` as None.
+    """
+    state = state or ContextState()
+    match = _WIFI_POWER.search(text)
+    if match:
+        state.wifi_on = match.group(1) == "On"
+    return state
+
+
+def parse_brightness(text: str, state: Optional[ContextState] = None) -> ContextState:
+    """Built-in display brightness from `ioreg -r -k IODisplayParameters`.
+
+    The `brightness` entry holds `min`, `max` and `value` in no fixed order.
+    The fraction is `(value - min) / (max - min)`. With the lid closed or only
+    an external display attached there is no such entry, and the fraction
+    stays None rather than reading as a dark screen.
+    """
+    state = state or ContextState()
+    match = _BRIGHTNESS.search(text)
+    if not match:
+        return state
+    numbers = {key: int(value) for key, value in _PLIST_INT.findall(match.group(1))}
+    low, high, value = numbers.get("min"), numbers.get("max"), numbers.get("value")
+    if low is None or high is None or value is None or high <= low:
+        return state
+    fraction = (value - low) / (high - low)
+    state.brightness_fraction = min(1.0, max(0.0, fraction))
+    return state
+
+
+_CONTEXT_PARSERS = {
+    "cpu_load": parse_cpu_load,
+    "wifi_power": parse_wifi_power,
+    "display_brightness": parse_brightness,
+}
+
+
+def parse_context(commands: dict) -> ContextState:
+    """The context half of a sample. Missing or failed commands leave None."""
+    state = ContextState()
+    for name, parser in _CONTEXT_PARSERS.items():
+        result = commands.get(name, {})
+        if result.get("ok"):
+            parser(result.get("stdout", ""), state)
+    return state
+
+
 def parse_sample(sample: dict) -> dict:
     """One stored sample as a flat dict of numbers, ready for a table row.
 
     Keys from ioreg keep their BatteryState names, keys from pmset are
-    prefixed `macos_`. A command that failed in that sample leaves its fields
-    as None, and `ioreg_ok` and `pmset_ok` say which half is missing.
+    prefixed `macos_`, and the context fields keep their ContextState names.
+    A command that failed in that sample leaves its fields as None, and
+    `ioreg_ok` and `pmset_ok` say which battery half is missing. Schema 1
+    samples have no context commands, so their context fields are all None.
     """
     commands = sample.get("commands", {})
     ioreg = commands.get("ioreg_battery", {})
@@ -225,4 +322,5 @@ def parse_sample(sample: dict) -> dict:
     }
     row.update(battery.to_dict())
     row.update({f"macos_{key}": value for key, value in macos.to_dict().items()})
+    row.update(parse_context(commands).to_dict())
     return row
