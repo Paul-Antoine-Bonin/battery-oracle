@@ -59,12 +59,20 @@ absolute paths to this checkout.
 
 ## What one sample contains
 
-Raw output from two commands, stored verbatim:
+Raw output from five commands, stored verbatim:
 
 | Source | What it gives |
 |---|---|
 | `pmset -g batt` | percentage, charging state, and the macOS estimate to beat |
 | `ioreg -r -c AppleSmartBattery` | capacity, cycles, voltage, amperage, temperature |
+| `sysctl -n vm.loadavg hw.logicalcpu` | CPU load average and core count |
+| `networksetup -getairportpower en0` | whether Wi-Fi is powered |
+| `ioreg -r -k IODisplayParameters` | built-in display brightness |
+
+The first two are required and the collector refuses to start without them. The
+last three are context: if one fails, the sample is still kept and the failure is
+recorded next to it. Samples with context carry `"schema": 2`; older samples are
+`1` and simply have no context half.
 
 Keeping the raw text means a field nobody thought to extract today is still recoverable
 from samples taken today.

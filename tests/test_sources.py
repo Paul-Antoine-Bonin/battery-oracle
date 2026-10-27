@@ -76,7 +76,13 @@ def test_collect_sample_records_every_command(monkeypatch):
     sample = collect_sample(now=MOMENT)
 
     assert sample.sampled_at == "2026-08-16T20:00:00+00:00"
-    assert set(sample.commands) == {"pmset_batt", "ioreg_battery"}
+    assert set(sample.commands) == {
+        "pmset_batt",
+        "ioreg_battery",
+        "cpu_load",
+        "wifi_power",
+        "display_brightness",
+    }
     assert all(entry["ok"] for entry in sample.commands.values())
 
 
@@ -101,7 +107,7 @@ def test_sample_serialises_to_a_plain_dict(monkeypatch):
     )
     payload = collect_sample(now=MOMENT).to_dict()
 
-    assert payload["schema"] == 1
+    assert payload["schema"] == 2
     assert isinstance(payload["commands"], dict)
 
 
@@ -115,3 +121,32 @@ def test_missing_tools_lists_absent_binaries(monkeypatch):
         sources.shutil, "which", lambda name: None if name == "ioreg" else "/bin/x"
     )
     assert missing_tools() == ["ioreg"]
+
+
+def test_a_failed_context_command_keeps_the_battery_half(monkeypatch):
+    def no_wifi(argv, timeout):
+        if argv[0] == "networksetup":
+            return CommandResult(False, error="exit 4: en0 is not a Wi-Fi interface")
+        return CommandResult(True, "output")
+
+    monkeypatch.setattr(sources, "run_command", no_wifi)
+    sample = collect_sample(now=MOMENT)
+
+    assert not sample.commands["wifi_power"]["ok"]
+    assert sample.commands["pmset_batt"]["ok"]
+    assert sample.commands["ioreg_battery"]["ok"]
+
+
+def test_missing_context_tools_do_not_block_the_collector(monkeypatch):
+    monkeypatch.setattr(
+        sources.shutil,
+        "which",
+        lambda name: None if name in ("sysctl", "networksetup") else "/usr/bin/x",
+    )
+    assert missing_tools() == []
+
+
+def test_brightness_dump_is_unwrapped_and_shallow():
+    argv = sources.CONTEXT_COMMANDS["display_brightness"]
+    assert "-w0" in argv
+    assert argv[argv.index("-d") + 1] == "1"
