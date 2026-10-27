@@ -1,0 +1,7 @@
++-o AppleARMBacklight  <class AppleARMBacklight, id 0x1000004b1, registered, matched, active, busy 0 (0 ms), retain 7>
+    {
+      "IOClass" = "AppleARMBacklight"
+      "IOProviderClass" = "IOService"
+      "IODisplayParameters" = {"commit"={"reg"=0},"brightness"={"min"=0,"value"=16384,"max"=65536},"linear-brightness"={"max"=1386,"min"=0,"value"=212}}
+    }
+    
