@@ -82,8 +82,11 @@ def install(python: Path, repo: Path, interval: int = DEFAULT_INTERVAL) -> Path:
     _launchctl("bootout", f"gui/{_uid()}/{LABEL}")
     result = _launchctl("bootstrap", f"gui/{_uid()}", str(path))
     if result.returncode != 0:
+        # launchctl sometimes fails with nothing on either stream, so the exit
+        # code is always included to keep the error from reading as blank.
+        detail = result.stderr.strip() or result.stdout.strip() or "no output"
         raise RuntimeError(
-            f"launchctl bootstrap failed: {result.stderr.strip() or result.stdout.strip()}"
+            f"launchctl bootstrap failed (exit {result.returncode}): {detail}"
         )
     return path
 
