@@ -13,7 +13,7 @@ numbers.
 
 Nothing here touches the network. There is no API, no upload and no telemetry. The
 `data/` tree is git-ignored: it holds raw `pmset` and `ioreg` output from a personal
-machine, and once the roadmap adds process context it will hold application names too.
+machine, and the bundle id of whichever application was in front at each sample.
 
 ## Setup
 
@@ -59,7 +59,7 @@ absolute paths to this checkout.
 
 ## What one sample contains
 
-Raw output from five commands, stored verbatim:
+Raw output from six commands, stored verbatim:
 
 | Source | What it gives |
 |---|---|
@@ -68,11 +68,12 @@ Raw output from five commands, stored verbatim:
 | `sysctl -n vm.loadavg hw.logicalcpu` | CPU load average and core count |
 | `networksetup -getairportpower en0` | whether Wi-Fi is powered |
 | `ioreg -r -k IODisplayParameters` | built-in display brightness |
+| `lsappinfo info -only bundleid` | bundle id of the frontmost application |
 
 The first two are required and the collector refuses to start without them. The
-last three are context: if one fails, the sample is still kept and the failure is
-recorded next to it. Samples with context carry `"schema": 2`; older samples are
-`1` and simply have no context half.
+last four are context: if one fails, the sample is still kept and the failure is
+recorded next to it. Samples carry a `schema` number: `1` has no context half, `2`
+adds load, Wi-Fi and brightness, and `3` adds the frontmost application.
 
 Keeping the raw text means a field nobody thought to extract today is still recoverable
 from samples taken today.
@@ -95,8 +96,8 @@ Each row has the hardware view (`charge_fraction`, `cycle_count`, `voltage_mv`,
 its half as None, and `ioreg_ok` and `pmset_ok` say which.
 
 The context fields sit alongside: `load_1m`, `load_5m`, `load_15m`, `logical_cpus`,
-`load_per_cpu`, `wifi_on` and `brightness_fraction`. Each is None when its command
-failed or the sample predates it.
+`load_per_cpu`, `wifi_on`, `brightness_fraction` and `foreground_app`. Each is None
+when its command failed or the sample predates it.
 
 - `Amperage` and `InstantAmperage` are converted with two's complement, so negative
   means discharging.
@@ -107,6 +108,9 @@ failed or the sample predates it.
   would give the baseline answers it never gave.
 - With the lid closed or only an external display, `brightness_fraction` is None,
   not 0. A missing panel is not a dark one.
+- `foreground_app` is a bundle id such as `com.example.editor`, kept as is. Grouping
+  applications into categories would need application names in the code, and those
+  stay out of the repository. Fixtures use made up ids for the same reason.
 
 About 4.1 KiB per sample, so roughly 1.2 MiB a day at one sample every five minutes.
 

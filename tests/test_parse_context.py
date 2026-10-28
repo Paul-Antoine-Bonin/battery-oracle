@@ -8,6 +8,7 @@ from battery.parse import (
     parse_brightness,
     parse_context,
     parse_cpu_load,
+    parse_foreground_app,
     parse_sample,
     parse_wifi_power,
 )
@@ -71,6 +72,17 @@ def test_a_degenerate_brightness_range_is_unknown():
     assert parse_brightness(text).brightness_fraction is None
 
 
+def test_foreground_app_is_the_bundle_id():
+    state = parse_foreground_app(fixture("lsappinfo_foreground.txt"))
+    assert state.foreground_app == "com.example.editor"
+
+
+def test_nothing_in_front_is_unknown():
+    # At the login window lsappinfo resolves no application.
+    assert parse_foreground_app("").foreground_app is None
+    assert parse_foreground_app("[ NULL ]\n").foreground_app is None
+
+
 def test_parse_context_skips_failed_commands():
     state = parse_context(
         {
@@ -97,6 +109,7 @@ def test_a_schema_2_sample_row_carries_the_context():
         },
     }
     row = parse_sample(sample)
+    assert row["foreground_app"] is None
     assert row["amperage_ma"] < 0
     assert row["macos_estimate_min"] == 75
     assert row["load_per_cpu"] == pytest.approx(2.15 / 8)
@@ -115,5 +128,25 @@ def test_a_schema_1_sample_row_has_empty_context():
     }
     row = parse_sample(sample)
     assert row["macos_percent"] == 31
-    for key in ("load_1m", "logical_cpus", "wifi_on", "brightness_fraction"):
+    for key in (
+        "load_1m", "logical_cpus", "wifi_on", "brightness_fraction", "foreground_app"
+    ):
         assert key in row and row[key] is None
+
+
+def test_a_schema_3_sample_row_carries_the_foreground_app():
+    sample = {
+        "sampled_at": "2026-08-16T20:00:00+00:00",
+        "schema": 3,
+        "commands": {
+            "pmset_batt": ok("pmset_discharging.txt"),
+            "ioreg_battery": ok("ioreg_discharging.txt"),
+            "foreground_app": ok("lsappinfo_foreground.txt"),
+        },
+    }
+    assert parse_sample(sample)["foreground_app"] == "com.example.editor"
+
+
+def test_a_failed_foreground_app_command_leaves_none():
+    state = parse_context({"foreground_app": failed("exit 127")})
+    assert state.foreground_app is None
