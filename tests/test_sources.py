@@ -82,6 +82,7 @@ def test_collect_sample_records_every_command(monkeypatch):
         "cpu_load",
         "wifi_power",
         "display_brightness",
+        "foreground_app",
     }
     assert all(entry["ok"] for entry in sample.commands.values())
 
@@ -107,7 +108,7 @@ def test_sample_serialises_to_a_plain_dict(monkeypatch):
     )
     payload = collect_sample(now=MOMENT).to_dict()
 
-    assert payload["schema"] == 2
+    assert payload["schema"] == 3
     assert isinstance(payload["commands"], dict)
 
 
@@ -150,3 +151,41 @@ def test_brightness_dump_is_unwrapped_and_shallow():
     argv = sources.CONTEXT_COMMANDS["display_brightness"]
     assert "-w0" in argv
     assert argv[argv.index("-d") + 1] == "1"
+
+
+def test_foreground_app_resolves_the_front_session_in_one_shell_call():
+    argv = sources.CONTEXT_COMMANDS["foreground_app"]
+    assert argv[:2] == ("/bin/sh", "-c")
+    script = argv[2]
+    # The second call must only run when the first one worked.
+    assert "lsappinfo front" in script and "&&" in script
+    assert "-only bundleid" in script
+
+
+def _fake_lsappinfo(tmp_path, front_exit):
+    tool = tmp_path / "lsappinfo"
+    tool.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = front ]; then echo "ASN:0x0-0x1001:"; exit ' + str(front_exit) + "; fi\n"
+        'echo "\\"CFBundleIdentifier\\"=\\"com.example.editor\\""\n'
+    )
+    tool.chmod(0o755)
+    return tool
+
+
+def test_foreground_app_script_runs_both_calls(tmp_path, monkeypatch):
+    _fake_lsappinfo(tmp_path, front_exit=0)
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    result = run_command(sources.CONTEXT_COMMANDS["foreground_app"])
+
+    assert result.ok
+    assert result.stdout.strip() == '"CFBundleIdentifier"="com.example.editor"'
+
+
+def test_foreground_app_script_fails_when_front_fails(tmp_path, monkeypatch):
+    _fake_lsappinfo(tmp_path, front_exit=1)
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    result = run_command(sources.CONTEXT_COMMANDS["foreground_app"])
+
+    assert not result.ok
+    assert "exit 1" in result.error
