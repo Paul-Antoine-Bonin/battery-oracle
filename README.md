@@ -7,7 +7,7 @@ the hardware actually reports, alongside the macOS estimate itself, so a model c
 trained and then compared against that baseline honestly.
 
 No model yet. The collector works and is ready to run, and stored samples parse into
-numbers.
+one time series table.
 
 ## Everything stays on this machine
 
@@ -111,6 +111,24 @@ when its command failed or the sample predates it.
 - `foreground_app` is a bundle id such as `com.example.editor`, kept as is. Grouping
   applications into categories would need application names in the code, and those
   stay out of the repository. Fixtures use made up ids for the same reason.
+
+## Time series
+
+```bash
+python -m battery.series build      # data/raw/*.jsonl -> data/series/samples.csv
+python -m battery.series summary    # rows, span, gaps, rows the baseline can be scored on
+```
+
+One row per sample, sorted by instant, one column per parsed field. The table is
+derived from the raw samples and rebuilt from scratch each time, so a parser fix
+reaches every past sample. It lives under `data/` like everything else collected.
+
+- `gap_s` is the seconds since the previous sample. A gap far above the sampling
+  interval marks a sleep or a stopped collector.
+- `schema` tells a sample that predates a context command from one where it failed.
+- Two samples with the same instant are kept once and counted in the build output.
+- CSV, read back with `battery.series.read_csv`, which restores ints, floats and
+  bools. An empty cell is None.
 
 About 4.1 KiB per sample, so roughly 1.2 MiB a day at one sample every five minutes.
 
