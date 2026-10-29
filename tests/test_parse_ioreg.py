@@ -118,3 +118,47 @@ def test_missing_temperature_is_none_not_zero():
 def test_zero_maximum_does_not_divide():
     state = parse_ioreg('"CurrentCapacity" = 10\n"MaxCapacity" = 0\n')
     assert state.charge_fraction is None
+
+
+def test_zero_design_capacity_does_not_divide():
+    state = parse_ioreg('"MaxCapacity" = 4000\n"DesignCapacity" = 0\n')
+    assert state.max_mah == 4000
+    assert state.health_fraction is None
+
+
+def test_a_lone_raw_capacity_field_falls_back_to_the_pair_without_prefix():
+    # Mixing AppleRawCurrentCapacity with MaxCapacity would divide mAh by a
+    # percentage, so both raw fields are needed before either is used.
+    text = (
+        '"AppleRawCurrentCapacity" = 1250\n'
+        '"CurrentCapacity" = 31\n'
+        '"MaxCapacity" = 100\n'
+    )
+    state = parse_ioreg(text)
+    assert state.current_mah == 31
+    assert state.max_mah == 100
+    assert state.charge_fraction == pytest.approx(0.31)
+
+
+def test_yes_or_no_where_a_number_belongs_is_not_a_number():
+    # bool is a subclass of int in Python, so this would read as 1 or 0.
+    state = parse_ioreg('"CycleCount" = Yes\n"Voltage" = No\n')
+    assert state.cycle_count is None
+    assert state.voltage_mv is None
+
+
+def test_a_number_where_a_flag_belongs_is_not_a_flag():
+    state = parse_ioreg('"IsCharging" = 1\n"FullyCharged" = 0\n')
+    assert state.is_charging is None
+    assert state.fully_charged is None
+
+
+def test_the_first_of_two_identical_keys_wins():
+    fields = ioreg_fields('"Voltage" = 11400\n  "Voltage" = 9000\n')
+    assert fields["Voltage"] == 11400
+
+
+def test_amperage_without_voltage_gives_no_power():
+    state = parse_ioreg('"Amperage" = 18446744073709550199\n')
+    assert state.amperage_ma == -1417
+    assert state.power_w is None
