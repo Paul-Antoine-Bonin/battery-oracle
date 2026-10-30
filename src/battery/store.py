@@ -76,6 +76,32 @@ class ReadReport:
         return len(self.samples)
 
 
+def _parse_line(line: str) -> Optional[dict]:
+    """The sample on one line, or None if the line cannot be used.
+
+    Usable means a JSON object whose `sampled_at` is an ISO timestamp with a
+    UTC offset. `append_sample` never writes anything else, but a hand edited
+    or partly overwritten file can hold valid JSON that is not a sample, and a
+    naive timestamp would later fail to compare with every aware one.
+    """
+    try:
+        sample = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(sample, dict):
+        return None
+    stamp = sample.get("sampled_at")
+    if not isinstance(stamp, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    return sample
+
+
 def read_samples(
     root: Path = DEFAULT_ROOT,
     start: Optional[datetime] = None,
@@ -96,14 +122,13 @@ def read_samples(
                 line = line.strip()
                 if not line:
                     continue
-                try:
-                    sample = json.loads(line)
-                    moment = datetime.fromisoformat(sample["sampled_at"])
-                except (json.JSONDecodeError, KeyError, ValueError):
+                sample = _parse_line(line)
+                if sample is None:
                     # A line cut in half by a shutdown, or a sample without a
                     # usable timestamp. One lost sample, not a lost day.
                     skipped += 1
                     continue
+                moment = datetime.fromisoformat(sample["sampled_at"])
                 if start is not None and moment < _as_utc(start):
                     continue
                 if end is not None and moment > _as_utc(end):
