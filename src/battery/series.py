@@ -12,13 +12,15 @@ every past sample, not only the new ones.
 CSV rather than Parquet so the collector side keeps working with the standard
 library alone. An empty cell means None, the same None the parser returned.
 
-Two things are added to what `parse_sample` gives:
+Three things are added to what `parse_sample` gives:
 
 - `schema`, so a row from before the context commands existed can be told
   apart from one where they failed.
 - `gap_s`, the seconds since the previous sample. A gap much longer than the
   sampling interval means the Mac slept or the collector stopped, and the
   target reconstruction has to know where those are.
+- The baseline columns from `battery.baseline`: `baseline_status`, and for
+  scorable rows `macos_remaining_min` and `macos_empty_at`.
 
 Two samples with the same instant are the same sample written twice, for
 example by a manual `once` racing the launchd agent. The first one read is
@@ -32,11 +34,13 @@ import csv
 import os
 import sys
 import typing
+from collections import Counter
 from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
+from .baseline import POWER_MISMATCH, SCORABLE, baseline_fields
 from .parse import BatteryState, ContextState, PmsetState, parse_sample
 from .store import DEFAULT_ROOT, read_samples
 
@@ -54,8 +58,8 @@ def _field_types(cls, prefix: str = "") -> Dict[str, type]:
     return out
 
 
-# The column order of the table. It follows parse_sample, with the two
-# additions placed right after the timestamp.
+# The column order of the table. It follows parse_sample, with schema and gap
+# placed right after the timestamp and the baseline after the macOS fields.
 COLUMN_TYPES: Dict[str, type] = {
     "sampled_at": str,
     "schema": int,
@@ -64,6 +68,9 @@ COLUMN_TYPES: Dict[str, type] = {
     "pmset_ok": bool,
     **_field_types(BatteryState),
     **_field_types(PmsetState, prefix="macos_"),
+    "baseline_status": str,
+    "macos_remaining_min": int,
+    "macos_empty_at": str,
     **_field_types(ContextState),
 }
 
@@ -105,6 +112,7 @@ def build_series(samples: Iterable[dict]) -> Series:
         parsed = parse_sample(sample)
         row = {column: None for column in COLUMNS}
         row.update({key: value for key, value in parsed.items() if key in row})
+        row.update(baseline_fields(parsed))
         row["schema"] = sample.get("schema")
         row["gap_s"] = (
             None if previous is None else (moment - previous).total_seconds()
@@ -175,14 +183,18 @@ def read_csv(path: Path = DEFAULT_OUT) -> List[dict]:
 def summarize(series: Series, gap_threshold_s: float = 900.0) -> Dict[str, object]:
     """Counts that show whether the series is usable yet.
 
-    `on_battery_with_estimate` is how many rows the baseline can be scored
-    on: an estimate on AC power is a time to full, not a time to empty.
+    `on_battery_with_estimate` counts every estimate given on battery power.
+    `baseline_scorable` is the subset the baseline can actually be scored on,
+    and `power_mismatch` the rows where pmset and ioreg disagreed about the
+    power source. An estimate on AC power is a time to full, so it never
+    counts.
     `gaps` counts the breaks longer than `gap_threshold_s`, three missed
     samples at the default five minute interval.
     """
     rows = series.rows
     on_battery = [row for row in rows if row["macos_power_source"] == "Battery Power"]
     gaps = [row["gap_s"] for row in rows if row["gap_s"] is not None]
+    statuses = Counter(row["baseline_status"] for row in rows)
     return {
         "rows": len(rows),
         "first": rows[0]["sampled_at"] if rows else None,
@@ -193,6 +205,8 @@ def summarize(series: Series, gap_threshold_s: float = 900.0) -> Dict[str, objec
         "on_battery_with_estimate": sum(
             1 for row in on_battery if row["macos_has_estimate"]
         ),
+        "baseline_scorable": statuses.get(SCORABLE, 0),
+        "power_mismatch": statuses.get(POWER_MISMATCH, 0),
         "gaps": sum(1 for gap in gaps if gap > gap_threshold_s),
         "longest_gap_s": max(gaps) if gaps else None,
     }

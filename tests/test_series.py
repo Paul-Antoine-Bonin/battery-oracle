@@ -25,10 +25,16 @@ def ok(name):
     return {"ok": True, "stdout": text, "error": "", "duration_s": 0.0}
 
 
-def sample(moment, pmset="pmset_discharging.txt", schema=3, context=True):
+def sample(
+    moment,
+    pmset="pmset_discharging.txt",
+    schema=3,
+    context=True,
+    ioreg="ioreg_discharging.txt",
+):
     commands = {
         "pmset_batt": ok(pmset),
-        "ioreg_battery": ok("ioreg_discharging.txt"),
+        "ioreg_battery": ok(ioreg),
     }
     if context:
         commands.update(
@@ -179,6 +185,8 @@ def test_summary_counts_battery_rows_estimates_and_gaps():
     assert summary["on_battery"] == 2
     # The charging estimate is a time to full, so it does not count.
     assert summary["on_battery_with_estimate"] == 1
+    assert summary["baseline_scorable"] == 1
+    assert summary["power_mismatch"] == 0
     assert summary["gaps"] == 1
     assert summary["longest_gap_s"] == 3000.0
 
@@ -206,3 +214,43 @@ def test_build_command_writes_the_table(tmp_path, capsys):
 def test_summary_command_runs_on_an_empty_store(tmp_path, capsys):
     assert series_mod.main(["--root", str(tmp_path), "summary"]) == 0
     assert "rows" in capsys.readouterr().out
+
+
+def test_rows_carry_the_baseline_columns():
+    moments = [
+        (START, "pmset_discharging.txt"),
+        (START + timedelta(minutes=5), "pmset_no_estimate.txt"),
+        (START + timedelta(minutes=10), "pmset_charging.txt"),
+    ]
+    rows = build_series(sample(m, pmset=p) for m, p in moments).rows
+
+    assert [row["baseline_status"] for row in rows] == [
+        "scorable",
+        "no_estimate",
+        "on_ac",
+    ]
+    assert rows[0]["macos_remaining_min"] == 75
+    assert rows[0]["macos_empty_at"] == (START + timedelta(minutes=75)).isoformat()
+    assert rows[1]["macos_remaining_min"] is None
+    assert rows[2]["macos_remaining_min"] is None
+
+
+def test_baseline_columns_survive_the_round_trip(tmp_path):
+    rows = build_series([sample(START)]).rows
+    back = read_csv(write_csv(rows, tmp_path / "samples.csv"))
+    assert back[0]["baseline_status"] == "scorable"
+    assert back[0]["macos_remaining_min"] == 75
+    assert isinstance(back[0]["macos_remaining_min"], int)
+
+
+def test_summary_counts_a_plug_event_between_the_commands():
+    # pmset still on battery, ioreg already on the charger.
+    rows = [
+        sample(START),
+        sample(START + timedelta(minutes=5), ioreg="ioreg_charging_no_raw_fields.txt"),
+    ]
+    summary = summarize(build_series(rows))
+
+    assert summary["on_battery_with_estimate"] == 2
+    assert summary["baseline_scorable"] == 1
+    assert summary["power_mismatch"] == 1

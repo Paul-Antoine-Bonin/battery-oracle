@@ -6,8 +6,8 @@ The macOS time-remaining estimate is unstable and often wrong. This repo collect
 the hardware actually reports, alongside the macOS estimate itself, so a model can be
 trained and then compared against that baseline honestly.
 
-No model yet. The collector works and is ready to run, and stored samples parse into
-one time series table.
+No model yet. The collector works and is ready to run, stored samples parse into one
+time series table, and each row carries the macOS estimate as the baseline to beat.
 
 ## Everything stays on this machine
 
@@ -131,6 +131,28 @@ reaches every past sample. It lives under `data/` like everything else collected
   bools. An empty cell is None.
 
 About 4.1 KiB per sample, so roughly 1.2 MiB a day at one sample every five minutes.
+
+## The macOS baseline
+
+`pmset -g batt` runs in the same sample as `ioreg`, so every row already holds the
+macOS estimate next to the hardware readings. `battery.baseline` decides which of
+those estimates count as a prediction of the time to empty, and records why the
+others do not in `baseline_status`:
+
+| Status | Meaning |
+|---|---|
+| `scorable` | on battery, discharging, with an estimate |
+| `pmset_failed` | no macOS reading in this sample |
+| `on_ac` | on AC power, where the figure is a time to full |
+| `power_mismatch` | pmset says battery, ioreg sees a charger or a charging current |
+| `not_discharging` | on battery but in another state |
+| `no_estimate` | macOS showed `(no estimate)` |
+
+Only `scorable` rows get `macos_remaining_min` and `macos_empty_at`, the instant
+macOS expected the battery to run out. `power_mismatch` exists because the commands
+run one after the other: a charger plugged in or pulled between them leaves two
+readings of two different moments, and neither estimator should be scored on that.
+`summary` prints `baseline_scorable` and `power_mismatch` alongside the other counts.
 
 ## Verified on this machine
 
