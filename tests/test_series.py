@@ -254,3 +254,43 @@ def test_summary_counts_a_plug_event_between_the_commands():
     assert summary["on_battery_with_estimate"] == 2
     assert summary["baseline_scorable"] == 1
     assert summary["power_mismatch"] == 1
+
+
+def test_rows_carry_the_target_columns():
+    # Discharging, then a charger, so the session is censored at 5 minutes.
+    rows = build_series(
+        [
+            sample(START),
+            sample(START + timedelta(minutes=5)),
+            sample(
+                START + timedelta(minutes=10),
+                pmset="pmset_charging.txt",
+                ioreg="ioreg_charging_no_raw_fields.txt",
+            ),
+        ]
+    ).rows
+
+    assert [row["target_status"] for row in rows] == ["censored", "censored", "none"]
+    assert [row["session_end_reason"] for row in rows] == ["plugged", "plugged", None]
+    assert rows[0]["session_id"] == 0
+    assert rows[0]["remaining_at_least_min"] == 5.0
+    assert rows[0]["actual_remaining_min"] is None
+
+
+def test_target_columns_survive_the_round_trip(tmp_path):
+    rows = build_series([sample(START), sample(START + timedelta(minutes=5))]).rows
+    back = read_csv(write_csv(rows, tmp_path / "samples.csv"))
+
+    assert back[0]["session_id"] == 0
+    assert back[0]["target_status"] == "censored"
+    assert back[0]["remaining_at_least_min"] == 5.0
+    assert back[0]["empty_at"] is None
+
+
+def test_summary_counts_the_target():
+    rows = [sample(START), sample(START + timedelta(minutes=5))]
+    summary = summarize(build_series(rows))
+
+    assert summary["target_exact"] == 0
+    assert summary["target_censored"] == 2
+    assert summary["sessions_empty"] == 0

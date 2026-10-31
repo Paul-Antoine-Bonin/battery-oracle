@@ -7,7 +7,8 @@ the hardware actually reports, alongside the macOS estimate itself, so a model c
 trained and then compared against that baseline honestly.
 
 No model yet. The collector works and is ready to run, stored samples parse into one
-time series table, and each row carries the macOS estimate as the baseline to beat.
+time series table, and each row carries the macOS estimate as the baseline to beat and
+the time the battery actually lasted, reconstructed afterwards.
 
 ## Everything stays on this machine
 
@@ -153,6 +154,44 @@ macOS expected the battery to run out. `power_mismatch` exists because the comma
 run one after the other: a charger plugged in or pulled between them leaves two
 readings of two different moments, and neither estimator should be scored on that.
 `summary` prints `baseline_scorable` and `power_mismatch` alongside the other counts.
+
+## The target
+
+What both estimators are scored against is the time the battery actually lasted from
+each row. It can only be known afterwards, so `battery.sessions` and `battery.target`
+rebuild it from the series every time the table is built.
+
+First the rows are split into discharge sessions: consecutive samples on battery with
+no gap longer than 15 minutes. Each session records how it ended in
+`session_end_reason`:
+
+| Reason | Meaning |
+|---|---|
+| `empty` | charge at or below 3%, then sampling stopped |
+| `plugged` | the next row is on a charger, or the charge went up |
+| `gap` | sampling stopped with charge left, a sleep or a stopped collector |
+| `open` | the data ends while the session is still running |
+
+Then each row in a session gets its target, with `target_status` saying which kind:
+
+| Status | Columns set |
+|---|---|
+| `exact` | `actual_remaining_min` and `empty_at`, the session ran out |
+| `censored` | `remaining_at_least_min` only, the session ended first |
+| `none` | nothing, the row is on a charger |
+
+- `empty` needs the gap after the last sample. A Mac plugged in at 2% shows the next
+  row on a charger with no gap, so it never ran out and stays censored.
+- `empty_at` is the last sample of the session. The battery ran out somewhere before
+  the next sample that never came, so `actual_remaining_min` can be short by up to one
+  sampling interval.
+- A gap ends a session even after a sleep on battery, so a target never covers time
+  the collector did not see.
+- Censored rows are kept. Full discharges are rare, and leaving out the lower bounds
+  would mean learning only from the days the battery ran flat.
+
+`summary` prints `target_exact`, `target_censored` and `sessions_empty`, the number of
+full discharges collected so far.
 
 ## Verified on this machine
 
