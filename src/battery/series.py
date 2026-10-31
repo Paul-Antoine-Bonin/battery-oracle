@@ -21,6 +21,9 @@ Three things are added to what `parse_sample` gives:
   target reconstruction has to know where those are.
 - The baseline columns from `battery.baseline`: `baseline_status`, and for
   scorable rows `macos_remaining_min` and `macos_empty_at`.
+- The target columns from `battery.target`: which discharge session a row
+  belongs to, how that session ended, and the time actually left until
+  empty, exact or as a lower bound.
 
 Two samples with the same instant are the same sample written twice, for
 example by a manual `once` racing the launchd agent. The first one read is
@@ -43,6 +46,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 from .baseline import POWER_MISMATCH, SCORABLE, baseline_fields
 from .parse import BatteryState, ContextState, PmsetState, parse_sample
 from .store import DEFAULT_ROOT, read_samples
+from .target import CENSORED, EXACT, target_fields
 
 DEFAULT_OUT = Path("data/series/samples.csv")
 
@@ -71,6 +75,12 @@ COLUMN_TYPES: Dict[str, type] = {
     "baseline_status": str,
     "macos_remaining_min": int,
     "macos_empty_at": str,
+    "session_id": int,
+    "session_end_reason": str,
+    "target_status": str,
+    "empty_at": str,
+    "actual_remaining_min": float,
+    "remaining_at_least_min": float,
     **_field_types(ContextState),
 }
 
@@ -119,6 +129,10 @@ def build_series(samples: Iterable[dict]) -> Series:
         )
         rows.append(row)
         previous = moment
+    # The target looks ahead to how each session ended, so it can only be
+    # filled once every row is in place.
+    for row, target in zip(rows, target_fields(rows)):
+        row.update(target)
     return Series(rows=rows, duplicates=duplicates)
 
 
@@ -188,6 +202,9 @@ def summarize(series: Series, gap_threshold_s: float = 900.0) -> Dict[str, objec
     and `power_mismatch` the rows where pmset and ioreg disagreed about the
     power source. An estimate on AC power is a time to full, so it never
     counts.
+    `target_exact` counts the rows whose session ran out, the only rows with
+    an actual time to empty, and `target_censored` the rows that only have a
+    lower bound. `sessions_empty` is how many full discharges there are.
     `gaps` counts the breaks longer than `gap_threshold_s`, three missed
     samples at the default five minute interval.
     """
@@ -195,6 +212,10 @@ def summarize(series: Series, gap_threshold_s: float = 900.0) -> Dict[str, objec
     on_battery = [row for row in rows if row["macos_power_source"] == "Battery Power"]
     gaps = [row["gap_s"] for row in rows if row["gap_s"] is not None]
     statuses = Counter(row["baseline_status"] for row in rows)
+    targets = Counter(row["target_status"] for row in rows)
+    empty_sessions = {
+        row["session_id"] for row in rows if row["target_status"] == EXACT
+    }
     return {
         "rows": len(rows),
         "first": rows[0]["sampled_at"] if rows else None,
@@ -207,6 +228,9 @@ def summarize(series: Series, gap_threshold_s: float = 900.0) -> Dict[str, objec
         ),
         "baseline_scorable": statuses.get(SCORABLE, 0),
         "power_mismatch": statuses.get(POWER_MISMATCH, 0),
+        "target_exact": targets.get(EXACT, 0),
+        "target_censored": targets.get(CENSORED, 0),
+        "sessions_empty": len(empty_sessions),
         "gaps": sum(1 for gap in gaps if gap > gap_threshold_s),
         "longest_gap_s": max(gaps) if gaps else None,
     }
