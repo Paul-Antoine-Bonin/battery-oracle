@@ -1,5 +1,7 @@
 """Model inputs for each discharging row: the current drain rate and the context.
 
+    python -m battery.features coverage
+
 The regression model predicts the time left until empty from what is known
 at the moment of a sample. This module turns a row of the time series into
 those inputs. It is the first half of the modelling step; fitting comes on
@@ -51,7 +53,10 @@ better made once there is data to make it with.
 
 from __future__ import annotations
 
+import argparse
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 DEFAULT_WINDOW_S = 1800.0
@@ -180,3 +185,30 @@ def coverage(items: Sequence[Optional[dict]]) -> Dict[str, int]:
     for column in FEATURE_COLUMNS:
         counts[column] = sum(1 for item in present if item[column] is not None)
     return counts
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    # Imported here so the feature functions stay usable on plain rows
+    # without pulling in the series module.
+    from .series import DEFAULT_OUT, read_csv
+
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--table", type=Path, default=DEFAULT_OUT)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("coverage", help="how often each feature has a value")
+    args = parser.parse_args(argv)
+
+    if not args.table.exists():
+        print(f"no table at {args.table}, run python -m battery.series build first")
+        return 1
+    counts = coverage(features(read_csv(args.table)))
+    total = counts.pop("rows")
+    print(f"{'rows':<24}{total}")
+    for column, count in counts.items():
+        share = f"{count / total:.0%}" if total else "-"
+        print(f"{column:<24}{count:<8}{share}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
