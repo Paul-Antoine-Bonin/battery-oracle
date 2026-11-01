@@ -221,6 +221,13 @@ print(coverage(items))        # how often each feature has a value
   ids into categories is a choice better made with data in hand.
 - Missing values stay None. Filling them is the model's job.
 
+```bash
+python -m battery.features coverage   # per feature, how many rows have a value
+```
+
+It reads the table written by `battery.series build`. A feature that is almost never
+set is not worth fitting on, and this shows it before any model is trained.
+
 ## Verified on this machine
 
 A four sample run, all fields recovered from the stored text:

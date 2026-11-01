@@ -4,7 +4,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from battery.features import FEATURE_COLUMNS, coverage, features, row_features
+from battery.features import (
+    FEATURE_COLUMNS,
+    coverage,
+    features,
+    main,
+    row_features,
+)
+from battery.series import COLUMNS, write_csv
 from battery.target import target_fields
 
 START = datetime(2026, 8, 16, 20, 0, tzinfo=timezone(timedelta(hours=2)))
@@ -162,3 +169,19 @@ def test_coverage_counts_values_per_feature():
     assert counts["rate_mah_per_h"] == 2
     assert counts["load_per_cpu"] == 0
 
+
+
+def test_the_coverage_command_reads_the_built_table(tmp_path, capsys):
+    rows = with_target([row(0, 2000, on_battery=False)] + drain(4, start_minute=5))
+    table = tmp_path / "samples.csv"
+    write_csv([{c: r.get(c) for c in COLUMNS} for r in rows], table)
+
+    assert main(["--table", str(table), "coverage"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0].split() == ["rows", "4"]
+    assert "rate_mah_per_h" in out and "50%" in out
+
+
+def test_the_coverage_command_asks_for_a_build_first(tmp_path, capsys):
+    assert main(["--table", str(tmp_path / "missing.csv"), "coverage"]) == 1
+    assert "battery.series build" in capsys.readouterr().out
