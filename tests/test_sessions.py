@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from battery.sessions import (
     EMPTY,
     END_REASONS,
@@ -143,3 +145,24 @@ def test_counts_list_every_reason():
 
 def test_no_rows_no_sessions():
     assert find_sessions([]) == []
+
+
+def test_unsorted_rows_are_rejected():
+    rows = drain(0, 0.60, 3)
+    rows[1], rows[2] = rows[2], rows[1]
+    with pytest.raises(ValueError, match="row 2 .* comes before row 1"):
+        find_sessions(rows)
+
+
+def test_rows_at_the_same_instant_are_accepted():
+    rows = [row(0, 0.60), row(0, 0.60), row(5, 0.59)]
+    assert [s.rows for s in find_sessions(rows)] == [[0, 1, 2]]
+
+
+def test_order_is_checked_by_instant_not_by_text():
+    # 21:58 in Paris is 19:58 UTC, so it does come first despite the text.
+    paris = datetime(2026, 8, 16, 21, 58, tzinfo=timezone(timedelta(hours=2)))
+    first = row(0, 0.60)
+    first["sampled_at"] = paris.isoformat()
+    rows = [first, row(0, 0.59)]
+    assert [s.rows for s in find_sessions(rows)] == [[0, 1]]

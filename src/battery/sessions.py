@@ -116,9 +116,21 @@ def find_sessions(
 
     The gap between two rows is computed from their instants rather than read
     from `gap_s`, so this works on any sorted subset of the series too.
+
+    Raises `ValueError` when a row comes before the one above it. Unsorted
+    rows would otherwise give negative gaps, which never break a session, and
+    the target would then hold negative minutes left.
     """
     sessions: List[Session] = []
     current: Optional[Session] = None
+
+    for i in range(1, len(rows)):
+        if _instant(rows[i]) < _instant(rows[i - 1]):
+            raise ValueError(
+                f"rows must be sorted by instant: row {i} at "
+                f"{rows[i]['sampled_at']} comes before row {i - 1} at "
+                f"{rows[i - 1]['sampled_at']}"
+            )
 
     def close(reason: str) -> None:
         nonlocal current
