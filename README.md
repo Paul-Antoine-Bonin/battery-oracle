@@ -193,6 +193,34 @@ Then each row in a session gets its target, with `target_status` saying which ki
 `summary` prints `target_exact`, `target_censored` and `sessions_empty`, the number of
 full discharges collected so far.
 
+## Model features
+
+`battery.features` turns each discharging row into the inputs the regression model
+will be fitted on: the drain rate and the context at that moment.
+
+```python
+from battery.features import coverage, features
+from battery.series import read_csv
+
+rows = read_csv()
+items = features(rows)        # None for rows on a charger
+print(coverage(items))        # how often each feature has a value
+```
+
+- A feature only looks backwards: the row itself and earlier rows of the same
+  discharge session. Never a later row and never a target column, so the model is
+  scored on what it could have known live, like macOS.
+- `rate_mah_per_h` is the charge lost per hour over the last 30 minutes, measured from
+  the charge readings. `draw_ma` is the instant current. Both are kept, along with the
+  time to empty each one implies on its own (`trend_remaining_min`,
+  `instant_remaining_min`).
+- A rate needs at least 10 minutes of history in the session, so the first samples
+  after unplugging have none.
+- Context: `load_per_cpu`, `wifi_on`, `brightness_fraction`, `temperature_c` and
+  `hour_of_day`. The foreground application is not a feature yet, since turning bundle
+  ids into categories is a choice better made with data in hand.
+- Missing values stay None. Filling them is the model's job.
+
 ## Verified on this machine
 
 A four sample run, all fields recovered from the stored text:
