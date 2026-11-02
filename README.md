@@ -6,9 +6,11 @@ The macOS time-remaining estimate is unstable and often wrong. This repo collect
 the hardware actually reports, alongside the macOS estimate itself, so a model can be
 trained and then compared against that baseline honestly.
 
-No model yet. The collector works and is ready to run, stored samples parse into one
-time series table, and each row carries the macOS estimate as the baseline to beat and
-the time the battery actually lasted, reconstructed afterwards.
+The collector works and is ready to run, stored samples parse into one time series
+table, and each row carries the macOS estimate as the baseline to beat and the time the
+battery actually lasted, reconstructed afterwards. The regression model is written and
+tested on synthetic sessions only. It has not been fitted on real data, so there are no
+results yet.
 
 ## Everything stays on this machine
 
@@ -227,6 +229,38 @@ python -m battery.features coverage   # per feature, how many rows have a value
 
 It reads the table written by `battery.series build`. A feature that is almost never
 set is not worth fitting on, and this shows it before any model is trained.
+
+## The model
+
+`battery.dataset` pairs each discharging row with its target, and `battery.model` fits a
+ridge regression on those pairs. It needs the analysis dependencies:
+
+```bash
+pip install -e '.[analysis]'
+```
+
+```python
+from battery.dataset import examples
+from battery.model import cross_predict
+from battery.series import read_csv
+
+items = examples(read_csv())
+predicted = cross_predict(items)   # one per example, None where it cannot be fitted
+```
+
+- A plain linear model on purpose. Full discharges are rare, so there are few
+  independent sessions to learn from.
+- Missing values get the median of the training rows and a column saying they were
+  missing. `hour_of_day` becomes a sine and a cosine. The two remaining time features
+  are capped at a day, since they blow up on a nearly idle machine.
+- Censored rows count as lower bounds. The first fit uses exact rows alone. Each
+  censored row then takes the larger of its prediction and its bound as a target, and
+  the model is refitted for up to five rounds.
+- `cross_predict` holds out one whole session at a time. Rows of a session are near
+  copies of each other, so a random split would flatter the model. A score must come
+  from these predictions, never from rows the model was fitted on.
+- With only one full discharge collected, its rows get no prediction, because the
+  other sessions hold no exact row to fit on. Those entries stay None.
 
 ## Verified on this machine
 
