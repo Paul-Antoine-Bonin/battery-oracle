@@ -68,6 +68,34 @@ def test_a_truncated_last_line_costs_one_sample(tmp_path):
     assert report.skipped_lines == 1
 
 
+def test_a_sample_after_a_truncated_line_is_kept(tmp_path):
+    # The next run appends to the same day file. Without a newline first, the
+    # new sample would join the broken fragment and be lost with it.
+    append_sample(sample(), root=tmp_path)
+    path = day_path(MOMENT, root=tmp_path)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"sampled_at": "2026-08-16T20:05:00+00:00", "comm')
+
+    after = MOMENT + timedelta(minutes=10)
+    append_sample(sample(after), root=tmp_path)
+
+    report = read_samples(root=tmp_path)
+    assert [s["sampled_at"] for s in report.samples] == [
+        MOMENT.isoformat(),
+        after.isoformat(),
+    ]
+    assert report.skipped_lines == 1
+
+
+def test_appending_adds_no_blank_lines(tmp_path):
+    append_sample(sample(), root=tmp_path)
+    append_sample(sample(MOMENT + timedelta(minutes=5)), root=tmp_path)
+
+    text = day_path(MOMENT, root=tmp_path).read_text(encoding="utf-8")
+    assert text.count("\n") == 2
+    assert "\n\n" not in text
+
+
 def test_a_line_without_a_timestamp_is_skipped(tmp_path):
     append_sample(sample(), root=tmp_path)
     path = day_path(MOMENT, root=tmp_path)

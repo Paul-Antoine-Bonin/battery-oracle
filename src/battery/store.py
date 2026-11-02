@@ -43,16 +43,27 @@ def append_sample(sample: dict, root: Path = DEFAULT_ROOT) -> Path:
     """Append one sample and return the file it went to.
 
     The line is built in memory first, so a serialisation error cannot leave a
-    half-written line behind.
+    half-written line behind. If an earlier write was cut off, the new sample
+    starts on a line of its own, so the damage stays on the truncated line.
     """
     moment = datetime.fromisoformat(sample["sampled_at"])
     path = day_path(moment, root=root)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     line = json.dumps(sample, ensure_ascii=False, separators=(",", ":"))
+    prefix = "\n" if _ends_mid_line(path) else ""
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(line + "\n")
+        handle.write(prefix + line + "\n")
     return path
+
+
+def _ends_mid_line(path: Path) -> bool:
+    """True if the file has content and its last byte is not a newline."""
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    with path.open("rb") as handle:
+        handle.seek(-1, 2)
+        return handle.read(1) != b"\n"
 
 
 def list_days(root: Path = DEFAULT_ROOT) -> List[Path]:
