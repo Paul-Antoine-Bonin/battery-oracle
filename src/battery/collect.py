@@ -75,6 +75,17 @@ def print_status(root: Path = DEFAULT_ROOT) -> None:
         print("no samples yet")
 
 
+def _positive_seconds(text: str) -> float:
+    """An `--interval` value. Zero would spin and a negative sleep would raise."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not 0 < value < float("inf"):
+        raise argparse.ArgumentTypeError(f"must be above zero, got {text}")
+    return value
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
@@ -83,7 +94,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sub.add_parser("once", help="take a single sample")
 
     loop = sub.add_parser("loop", help="sample repeatedly until interrupted")
-    loop.add_argument("--interval", type=float, default=DEFAULT_INTERVAL)
+    loop.add_argument("--interval", type=_positive_seconds, default=DEFAULT_INTERVAL)
     loop.add_argument("--max-samples", type=int, default=None)
 
     sub.add_parser("status", help="what has been collected so far")
