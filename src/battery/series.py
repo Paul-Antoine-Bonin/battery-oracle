@@ -185,13 +185,22 @@ def read_csv(path: Path = DEFAULT_OUT) -> List[dict]:
     """
     with Path(path).open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
-        return [
-            {
-                key: _typed(value, COLUMN_TYPES.get(key, str))
-                for key, value in record.items()
-            }
-            for record in reader
-        ]
+        rows = []
+        for record in reader:
+            # DictReader marks a short row with None values and a long one
+            # with a None key.
+            if None in record or None in record.values():
+                raise ValueError(
+                    f"{path}: line {reader.line_num} has the wrong number of "
+                    f"cells, rebuild the table with python -m battery.series build"
+                )
+            rows.append(
+                {
+                    key: _typed(value, COLUMN_TYPES.get(key, str))
+                    for key, value in record.items()
+                }
+            )
+        return rows
 
 
 def summarize(series: Series, gap_threshold_s: float = 900.0) -> Dict[str, object]:
