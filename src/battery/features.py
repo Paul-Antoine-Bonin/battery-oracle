@@ -4,8 +4,8 @@
 
 The regression model predicts the time left until empty from what is known
 at the moment of a sample. This module turns a row of the time series into
-those inputs. It is the first half of the modelling step; fitting comes on
-top of it.
+those inputs. `battery.dataset` pairs them with the target and `battery.model`
+fits on the result.
 
 The one rule that matters here is that a feature only ever looks backwards.
 Every value is computed from the row itself and the rows before it in the

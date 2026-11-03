@@ -8,13 +8,12 @@ or a battery that actually ran out. A truncated final line costs one sample and
 nothing else, where a half-written columnar file can cost the whole day. Reads
 skip unparseable lines and report how many they skipped.
 
-Roughly 1 MiB per day at one sample every five minutes. The parsing step of the
-roadmap turns this into something compact, after which the raw files can be
-pruned or compressed.
+Roughly 1.2 MiB per day at one sample every five minutes. These files stay the
+source of truth: `battery.series` rebuilds its table from them every time, so
+pruning them would stop a parser fix from reaching past samples.
 
-The tree is git-ignored. `pmset -g log` and the process context this project
-will eventually add both carry application names, and the brief says those
-never enter a commit.
+The tree is git-ignored. Each sample holds the bundle id of the frontmost
+application, and the brief says application names never enter a commit.
 """
 
 from __future__ import annotations
