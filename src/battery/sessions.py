@@ -107,6 +107,19 @@ def _charge_rose(before: dict, after: dict) -> bool:
     return a is not None and b is not None and b > a
 
 
+def _check_sorted(rows: Sequence[dict]) -> List[datetime]:
+    """The instant of every row, after checking they never go backwards."""
+    instants = [_instant(row) for row in rows]
+    for i in range(1, len(instants)):
+        if instants[i] < instants[i - 1]:
+            raise ValueError(
+                f"rows must be sorted by instant: row {i} at "
+                f"{rows[i]['sampled_at']} comes before row {i - 1} at "
+                f"{rows[i - 1]['sampled_at']}"
+            )
+    return instants
+
+
 def find_sessions(
     rows: Sequence[dict],
     max_gap_s: float = DEFAULT_MAX_GAP_S,
@@ -124,13 +137,7 @@ def find_sessions(
     sessions: List[Session] = []
     current: Optional[Session] = None
 
-    for i in range(1, len(rows)):
-        if _instant(rows[i]) < _instant(rows[i - 1]):
-            raise ValueError(
-                f"rows must be sorted by instant: row {i} at "
-                f"{rows[i]['sampled_at']} comes before row {i - 1} at "
-                f"{rows[i - 1]['sampled_at']}"
-            )
+    instants = _check_sorted(rows)
 
     def close(reason: str) -> None:
         nonlocal current
@@ -142,7 +149,7 @@ def find_sessions(
     for i, row in enumerate(rows):
         if current is not None:
             previous = rows[current.last]
-            gap = (_instant(row) - _instant(previous)).total_seconds()
+            gap = (instants[i] - instants[current.last]).total_seconds()
             if gap > max_gap_s:
                 charge = charge_of(previous)
                 if charge is not None and charge <= empty_fraction:

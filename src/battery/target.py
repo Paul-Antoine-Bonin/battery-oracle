@@ -74,6 +74,7 @@ def target_fields(
     """The target columns for every row, in the same order as `rows`.
 
     `rows` must be sorted by instant, as `battery.series` builds them.
+    Unsorted rows raise `ValueError`, from `battery.sessions.find_sessions`.
     `empty_at` keeps the offset of the sample it comes from, so it compares
     with `macos_empty_at` directly.
     """

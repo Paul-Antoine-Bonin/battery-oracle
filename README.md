@@ -189,6 +189,9 @@ Then each row in a session gets its target, with `target_status` saying which ki
   the collector did not see.
 - Censored rows are kept. Full discharges are rare, and leaving out the lower bounds
   would mean learning only from the days the battery ran flat.
+- Both steps need the rows sorted by instant. The table is always built sorted, but
+  a direct call to `find_sessions` or `target_fields` with rows out of order raises
+  `ValueError` rather than producing negative minutes left.
 
 `summary` prints `target_exact`, `target_censored` and `sessions_empty`, the number of
 full discharges collected so far.
