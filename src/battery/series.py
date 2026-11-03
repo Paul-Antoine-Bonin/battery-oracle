@@ -12,7 +12,7 @@ every past sample, not only the new ones.
 CSV rather than Parquet so the collector side keeps working with the standard
 library alone. An empty cell means None, the same None the parser returned.
 
-Three things are added to what `parse_sample` gives:
+Four things are added to what `parse_sample` gives:
 
 - `schema`, so a row from before the context commands existed can be told
   apart from one where they failed.
