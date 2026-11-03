@@ -97,7 +97,7 @@ def test_a_line_cut_inside_a_character_costs_one_sample(tmp_path):
     report = read_samples(root=tmp_path)
     assert report.count == 1
     assert report.skipped_lines == 1
-    assert coverage(root=tmp_path) == [("2026-08-16", 2)]
+    assert coverage(root=tmp_path) == [("2026-08-16", 1)]
 
 
 def test_appending_adds_no_blank_lines(tmp_path):
@@ -185,6 +185,16 @@ def test_coverage_counts_samples_per_day(tmp_path):
     append_sample(sample(MOMENT + timedelta(days=1)), root=tmp_path)
 
     assert coverage(root=tmp_path) == [("2026-08-16", 2), ("2026-08-17", 1)]
+
+
+def test_coverage_leaves_out_damaged_lines(tmp_path):
+    path = append_sample(sample(), root=tmp_path)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"sampled_at": "2026-08\n')
+        handle.write('["not", "a", "sample"]\n')
+
+    assert coverage(root=tmp_path) == [("2026-08-16", 1)]
+    assert sum(n for _, n in coverage(root=tmp_path)) == read_samples(root=tmp_path).count
 
 
 def test_coverage_on_an_empty_tree(tmp_path):
