@@ -60,6 +60,9 @@ samples around a sleep are exactly the ones worth having.
 The plist is generated at install time and never committed, because it has to carry
 absolute paths to this checkout.
 
+The agent writes its output to `data/logs/collect.out` and `data/logs/collect.err`,
+git-ignored like the rest of `data/`. If samples stop appearing, look there first.
+
 ## What one sample contains
 
 Raw output from six commands, stored verbatim:
