@@ -13,8 +13,8 @@ your real usage and predicts better, then prove it.
 - [x] Set up repo, collection script run periodically
 - [x] Extract: charge level, cycles, voltage, amperage, temperature if available
 - [x] Add the context: brightness, foreground applications, CPU load, Wi-Fi
-- [ ] Store as a timestamped time series, one row per sample
-- [ ] Record the macOS estimate at the same moment too, to have a baseline to beat
+- [x] Store as a timestamped time series, one row per sample
+- [x] Record the macOS estimate at the same moment too, to have a baseline to beat
 - [ ] After a few weeks: build the target, the time actually remaining until discharge,
       reconstructed after the fact
 - [ ] Regression model on the current discharge rate and the context

@@ -6,8 +6,11 @@ The macOS time-remaining estimate is unstable and often wrong. This repo collect
 the hardware actually reports, alongside the macOS estimate itself, so a model can be
 trained and then compared against that baseline honestly.
 
-No model yet. The collector works and is ready to run, and stored samples parse into
-numbers.
+The collector works and is ready to run, stored samples parse into one time series
+table, and each row carries the macOS estimate as the baseline to beat and the time the
+battery actually lasted, reconstructed afterwards. The regression model is written and
+tested on synthetic sessions only. It has not been fitted on real data, so there are no
+results yet.
 
 ## Everything stays on this machine
 
@@ -112,7 +115,152 @@ when its command failed or the sample predates it.
   applications into categories would need application names in the code, and those
   stay out of the repository. Fixtures use made up ids for the same reason.
 
+## Time series
+
+```bash
+python -m battery.series build      # data/raw/*.jsonl -> data/series/samples.csv
+python -m battery.series summary    # rows, span, gaps, rows the baseline can be scored on
+```
+
+One row per sample, sorted by instant, one column per parsed field. The table is
+derived from the raw samples and rebuilt from scratch each time, so a parser fix
+reaches every past sample. It lives under `data/` like everything else collected.
+
+- `gap_s` is the seconds since the previous sample. A gap far above the sampling
+  interval marks a sleep or a stopped collector.
+- `schema` tells a sample that predates a context command from one where it failed.
+- Two samples with the same instant are kept once and counted in the build output.
+- CSV, read back with `battery.series.read_csv`, which restores ints, floats and
+  bools. An empty cell is None.
+
 About 4.1 KiB per sample, so roughly 1.2 MiB a day at one sample every five minutes.
+
+## The macOS baseline
+
+`pmset -g batt` runs in the same sample as `ioreg`, so every row already holds the
+macOS estimate next to the hardware readings. `battery.baseline` decides which of
+those estimates count as a prediction of the time to empty, and records why the
+others do not in `baseline_status`:
+
+| Status | Meaning |
+|---|---|
+| `scorable` | on battery, discharging, with an estimate |
+| `pmset_failed` | no macOS reading in this sample |
+| `on_ac` | on AC power, where the figure is a time to full |
+| `power_mismatch` | pmset says battery, ioreg sees a charger or a charging current |
+| `not_discharging` | on battery but in another state |
+| `no_estimate` | macOS showed `(no estimate)` |
+
+Only `scorable` rows get `macos_remaining_min` and `macos_empty_at`, the instant
+macOS expected the battery to run out. `power_mismatch` exists because the commands
+run one after the other: a charger plugged in or pulled between them leaves two
+readings of two different moments, and neither estimator should be scored on that.
+`summary` prints `baseline_scorable` and `power_mismatch` alongside the other counts.
+
+## The target
+
+What both estimators are scored against is the time the battery actually lasted from
+each row. It can only be known afterwards, so `battery.sessions` and `battery.target`
+rebuild it from the series every time the table is built.
+
+First the rows are split into discharge sessions: consecutive samples on battery with
+no gap longer than 15 minutes. Each session records how it ended in
+`session_end_reason`:
+
+| Reason | Meaning |
+|---|---|
+| `empty` | charge at or below 3%, then sampling stopped |
+| `plugged` | the next row is on a charger, or the charge went up |
+| `gap` | sampling stopped with charge left, a sleep or a stopped collector |
+| `open` | the data ends while the session is still running |
+
+Then each row in a session gets its target, with `target_status` saying which kind:
+
+| Status | Columns set |
+|---|---|
+| `exact` | `actual_remaining_min` and `empty_at`, the session ran out |
+| `censored` | `remaining_at_least_min` only, the session ended first |
+| `none` | nothing, the row is on a charger |
+
+- `empty` needs the gap after the last sample. A Mac plugged in at 2% shows the next
+  row on a charger with no gap, so it never ran out and stays censored.
+- `empty_at` is the last sample of the session. The battery ran out somewhere before
+  the next sample that never came, so `actual_remaining_min` can be short by up to one
+  sampling interval.
+- A gap ends a session even after a sleep on battery, so a target never covers time
+  the collector did not see.
+- Censored rows are kept. Full discharges are rare, and leaving out the lower bounds
+  would mean learning only from the days the battery ran flat.
+
+`summary` prints `target_exact`, `target_censored` and `sessions_empty`, the number of
+full discharges collected so far.
+
+## Model features
+
+`battery.features` turns each discharging row into the inputs the regression model
+will be fitted on: the drain rate and the context at that moment.
+
+```python
+from battery.features import coverage, features
+from battery.series import read_csv
+
+rows = read_csv()
+items = features(rows)        # None for rows on a charger
+print(coverage(items))        # how often each feature has a value
+```
+
+- A feature only looks backwards: the row itself and earlier rows of the same
+  discharge session. Never a later row and never a target column, so the model is
+  scored on what it could have known live, like macOS.
+- `rate_mah_per_h` is the charge lost per hour over the last 30 minutes, measured from
+  the charge readings. `draw_ma` is the instant current. Both are kept, along with the
+  time to empty each one implies on its own (`trend_remaining_min`,
+  `instant_remaining_min`).
+- A rate needs at least 10 minutes of history in the session, so the first samples
+  after unplugging have none.
+- Context: `load_per_cpu`, `wifi_on`, `brightness_fraction`, `temperature_c` and
+  `hour_of_day`. The foreground application is not a feature yet, since turning bundle
+  ids into categories is a choice better made with data in hand.
+- Missing values stay None. Filling them is the model's job.
+
+```bash
+python -m battery.features coverage   # per feature, how many rows have a value
+```
+
+It reads the table written by `battery.series build`. A feature that is almost never
+set is not worth fitting on, and this shows it before any model is trained.
+
+## The model
+
+`battery.dataset` pairs each discharging row with its target, and `battery.model` fits a
+ridge regression on those pairs. It needs the analysis dependencies:
+
+```bash
+pip install -e '.[analysis]'
+```
+
+```python
+from battery.dataset import examples
+from battery.model import cross_predict
+from battery.series import read_csv
+
+items = examples(read_csv())
+predicted = cross_predict(items)   # one per example, None where it cannot be fitted
+```
+
+- A plain linear model on purpose. Full discharges are rare, so there are few
+  independent sessions to learn from.
+- Missing values get the median of the training rows and a column saying they were
+  missing. `hour_of_day` becomes a sine and a cosine. The two remaining time features
+  are capped at a day, since they blow up on a nearly idle machine.
+- Censored rows count as lower bounds. The first fit uses exact rows alone. Each
+  censored row then takes the larger of its prediction and its bound as a target, and
+  the model is refitted for up to five rounds.
+- `cross_predict` holds out one whole session at a time. Rows of a session are near
+  copies of each other, so a random split would flatter the model. A score must come
+  from these predictions, never from rows the model was fitted on.
+- With only one full discharge collected, its rows get no prediction, because the
+  other sessions hold no exact row to fit on. Those entries stay None.
 
 ## Verified on this machine
 

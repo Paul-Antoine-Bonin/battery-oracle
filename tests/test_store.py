@@ -68,6 +68,34 @@ def test_a_truncated_last_line_costs_one_sample(tmp_path):
     assert report.skipped_lines == 1
 
 
+def test_a_sample_after_a_truncated_line_is_kept(tmp_path):
+    # The next run appends to the same day file. Without a newline first, the
+    # new sample would join the broken fragment and be lost with it.
+    append_sample(sample(), root=tmp_path)
+    path = day_path(MOMENT, root=tmp_path)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"sampled_at": "2026-08-16T20:05:00+00:00", "comm')
+
+    after = MOMENT + timedelta(minutes=10)
+    append_sample(sample(after), root=tmp_path)
+
+    report = read_samples(root=tmp_path)
+    assert [s["sampled_at"] for s in report.samples] == [
+        MOMENT.isoformat(),
+        after.isoformat(),
+    ]
+    assert report.skipped_lines == 1
+
+
+def test_appending_adds_no_blank_lines(tmp_path):
+    append_sample(sample(), root=tmp_path)
+    append_sample(sample(MOMENT + timedelta(minutes=5)), root=tmp_path)
+
+    text = day_path(MOMENT, root=tmp_path).read_text(encoding="utf-8")
+    assert text.count("\n") == 2
+    assert "\n\n" not in text
+
+
 def test_a_line_without_a_timestamp_is_skipped(tmp_path):
     append_sample(sample(), root=tmp_path)
     path = day_path(MOMENT, root=tmp_path)
@@ -75,6 +103,41 @@ def test_a_line_without_a_timestamp_is_skipped(tmp_path):
         handle.write('{"schema": 1}\n')
 
     report = read_samples(root=tmp_path)
+    assert report.count == 1
+    assert report.skipped_lines == 1
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "[1, 2, 3]",
+        "42",
+        '"2026-08-16T20:05:00+00:00"',
+        '{"sampled_at": 1786219500}',
+        '{"sampled_at": null}',
+        '{"sampled_at": "yesterday evening"}',
+    ],
+    ids=["array", "number", "bare string", "numeric stamp", "null stamp", "free text"],
+)
+def test_valid_json_that_is_not_a_sample_is_skipped(tmp_path, line):
+    # These used to raise TypeError out of the read instead of being counted.
+    append_sample(sample(), root=tmp_path)
+    with day_path(MOMENT, root=tmp_path).open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+    report = read_samples(root=tmp_path)
+    assert report.count == 1
+    assert report.skipped_lines == 1
+
+
+def test_a_naive_timestamp_is_skipped(tmp_path):
+    # Without an offset it cannot be ordered against the other samples, and
+    # comparing it with an aware bound or neighbour would raise TypeError.
+    append_sample(sample(), root=tmp_path)
+    with day_path(MOMENT, root=tmp_path).open("a", encoding="utf-8") as handle:
+        handle.write('{"sampled_at": "2026-08-16T20:05:00", "schema": 1}\n')
+
+    report = read_samples(root=tmp_path, start=MOMENT - timedelta(hours=1))
     assert report.count == 1
     assert report.skipped_lines == 1
 
