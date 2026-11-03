@@ -294,3 +294,11 @@ def test_summary_counts_the_target():
     assert summary["target_exact"] == 0
     assert summary["target_censored"] == 2
     assert summary["sessions_empty"] == 0
+
+
+@pytest.mark.parametrize("line", ["2026-08-16T20:00:00+00:00", "a,b,c,d"])
+def test_a_row_with_the_wrong_cell_count_names_its_line(tmp_path, line):
+    table = tmp_path / "t.csv"
+    table.write_text(f"sampled_at,schema\n{line}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="line 2"):
+        read_csv(table)
