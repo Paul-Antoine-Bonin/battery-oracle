@@ -14,15 +14,22 @@ how much evidence there is. The number of sessions is what matters. A long
 session also weighs more than a short one in a mean over rows, so `compare`
 gives a mean over sessions as well, and how many sessions each estimator won.
 
-Scoring needs only the standard library.
+Scoring needs only the standard library. The `report` command needs the
+`analysis` extra, because it has to fit the model first.
 """
 
 from __future__ import annotations
 
+import argparse
+import math
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-from .dataset import Example
+from .dataset import Example, example_counts, examples
+
+DEFAULT_BAND_PCT = 10
 
 
 @dataclass(frozen=True)
@@ -121,6 +128,38 @@ def compare(scored: Sequence[Scored]) -> dict:
     }
 
 
+def by_charge(
+    scored: Sequence[Scored], band_pct: int = DEFAULT_BAND_PCT
+) -> List[dict]:
+    """Both estimators per charge band, lowest first, skipping empty bands.
+
+    Bands include their lower edge. A full battery goes in the top band, so
+    there is no band holding only 100%. A row with no charge reading is left
+    out. This is what the error chart plots.
+    """
+    if not 1 <= band_pct <= 100:
+        raise ValueError(f"band_pct must be between 1 and 100, got {band_pct}")
+    top = math.ceil(100 / band_pct) - 1
+    groups: Dict[int, List[Scored]] = {}
+    for item in scored:
+        if item.charge_fraction is None:
+            continue
+        # Rounded first, since 0.29 * 100 lands just under 29 in binary.
+        percent = round(item.charge_fraction * 100, 6)
+        groups.setdefault(min(int(percent // band_pct), top), []).append(item)
+    return [
+        {
+            "low_pct": band * band_pct,
+            "high_pct": min((band + 1) * band_pct, 100),
+            "rows": len(group),
+            "sessions": len({item.session for item in group}),
+            "model_mae": _mae([item.model_error for item in group]),
+            "macos_mae": _mae([item.macos_error for item in group]),
+        }
+        for band, group in sorted(groups.items())
+    ]
+
+
 def bound_misses(
     rows: Sequence[dict],
     items: Sequence[Example],
@@ -141,3 +180,76 @@ def bound_misses(
         out["model_below"] += model_min < item.minutes
         out["macos_below"] += macos_min < item.minutes
     return out
+
+
+def _minutes(value: Optional[float]) -> str:
+    return "-" if value is None else f"{value:.1f}"
+
+
+def report_lines(
+    rows: Sequence[dict],
+    items: Sequence[Example],
+    predicted: Sequence[Optional[float]],
+    band_pct: int = DEFAULT_BAND_PCT,
+) -> List[str]:
+    """The text of the `report` command, from rows already predicted."""
+    counts = example_counts(items)
+    scored = scored_rows(rows, items, predicted)
+    totals = compare(scored)
+    misses = bound_misses(rows, items, predicted)
+    lines = [
+        f"{'examples':<24}{counts['examples']}",
+        f"{'sessions_exact':<24}{counts['sessions_exact']}",
+        f"{'scored_rows':<24}{totals['rows']}",
+        f"{'scored_sessions':<24}{totals['sessions']}",
+        f"{'model_mae_min':<24}{_minutes(totals['model_mae'])}",
+        f"{'macos_mae_min':<24}{_minutes(totals['macos_mae'])}",
+        f"{'model_session_mae_min':<24}{_minutes(totals['model_session_mae'])}",
+        f"{'macos_session_mae_min':<24}{_minutes(totals['macos_session_mae'])}",
+        f"{'sessions_model_better':<24}{totals['sessions_model_better']}",
+        f"{'sessions_macos_better':<24}{totals['sessions_macos_better']}",
+        f"{'censored_rows':<24}{misses['rows']}",
+        f"{'model_below_bound':<24}{misses['model_below']}",
+        f"{'macos_below_bound':<24}{misses['macos_below']}",
+    ]
+    bands = by_charge(scored, band_pct)
+    if bands:
+        lines.append("")
+        lines.append(
+            f"{'charge':<12}{'rows':<8}{'sessions':<10}{'model':<10}{'macos':<10}"
+        )
+    for band in bands:
+        name = f"{band['low_pct']}-{band['high_pct']}%"
+        lines.append(
+            f"{name:<12}{band['rows']:<8}{band['sessions']:<10}"
+            f"{_minutes(band['model_mae']):<10}{_minutes(band['macos_mae']):<10}".rstrip()
+        )
+    return lines
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    # Imported here so scoring works without the analysis extra.
+    from .series import DEFAULT_OUT, read_csv
+
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--table", type=Path, default=DEFAULT_OUT)
+    sub = parser.add_subparsers(dest="command", required=True)
+    report = sub.add_parser("report", help="mean absolute error of both estimators")
+    report.add_argument("--band", type=int, default=DEFAULT_BAND_PCT)
+    args = parser.parse_args(argv)
+
+    if not args.table.exists():
+        print(f"no table at {args.table}, run python -m battery.series build first")
+        return 1
+
+    from .model import cross_predict
+
+    rows = read_csv(args.table)
+    items = examples(rows)
+    for line in report_lines(rows, items, cross_predict(items), args.band):
+        print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
