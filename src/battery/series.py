@@ -46,6 +46,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 from .baseline import POWER_MISMATCH, SCORABLE, baseline_fields
 from .parse import BatteryState, ContextState, PmsetState, parse_sample
 from .store import DEFAULT_ROOT, read_samples
+from .sessions import DEFAULT_MAX_GAP_S
 from .target import CENSORED, EXACT, target_fields
 
 DEFAULT_OUT = Path("data/series/samples.csv")
@@ -203,7 +204,9 @@ def read_csv(path: Path = DEFAULT_OUT) -> List[dict]:
         return rows
 
 
-def summarize(series: Series, gap_threshold_s: float = 900.0) -> Dict[str, object]:
+def summarize(
+    series: Series, gap_threshold_s: float = DEFAULT_MAX_GAP_S
+) -> Dict[str, object]:
     """Counts that show whether the series is usable yet.
 
     `on_battery_with_estimate` counts every estimate given on battery power.
