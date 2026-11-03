@@ -219,7 +219,8 @@ print(coverage(items))        # how often each feature has a value
 - A rate needs at least 10 minutes of history in the session, so the first samples
   after unplugging have none.
 - Context: `load_per_cpu`, `wifi_on`, `brightness_fraction`, `temperature_c` and
-  `hour_of_day`. The foreground application is not a feature yet, since turning bundle
+  `hour_of_day`. The hour is read at the offset stored with the sample, and the
+  collector stores UTC, so it is not the local time of day. The foreground application is not a feature yet, since turning bundle
   ids into categories is a choice better made with data in hand.
 - Missing values stay None. Filling them is the model's job.
 

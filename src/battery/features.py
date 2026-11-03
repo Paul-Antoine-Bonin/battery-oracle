@@ -33,7 +33,7 @@ time to empty to predict, so `row_features` returns None for it.
 | `wifi_on` | 1.0 when Wi-Fi was powered, 0.0 when not |
 | `brightness_fraction` | built-in display brightness |
 | `temperature_c` | battery temperature |
-| `hour_of_day` | local hour of the sample, from its stored offset |
+| `hour_of_day` | hour of the sample at its stored offset, so UTC as collected |
 
 Any feature can be None: a command failed, the sample predates a context
 field, or the session is too young for a trailing rate. The model step
