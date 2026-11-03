@@ -284,7 +284,12 @@ capacity.
 ## Run the tests
 
 ```bash
+pip install -e '.[dev]'
 pytest
 ```
+
+The tests run on fixtures under `tests/` and never call `pmset` or `ioreg`, so they
+pass on any system. `tests/test_model.py` is skipped unless the `analysis` extra is
+installed too.
 
 Roadmap and progress: [TODO.md](TODO.md)
