@@ -8,13 +8,12 @@ or a battery that actually ran out. A truncated final line costs one sample and
 nothing else, where a half-written columnar file can cost the whole day. Reads
 skip unparseable lines and report how many they skipped.
 
-Roughly 1 MiB per day at one sample every five minutes. The parsing step of the
-roadmap turns this into something compact, after which the raw files can be
-pruned or compressed.
+Roughly 1.2 MiB per day at one sample every five minutes. These files stay the
+source of truth: `battery.series` rebuilds its table from them every time, so
+pruning them would stop a parser fix from reaching past samples.
 
-The tree is git-ignored. `pmset -g log` and the process context this project
-will eventually add both carry application names, and the brief says those
-never enter a commit.
+The tree is git-ignored. Each sample holds the bundle id of the frontmost
+application, and the brief says application names never enter a commit.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, TextIO, Tuple
 
 DEFAULT_ROOT = Path("data/raw")
 
@@ -64,6 +63,17 @@ def _ends_mid_line(path: Path) -> bool:
     with path.open("rb") as handle:
         handle.seek(-1, 2)
         return handle.read(1) != b"\n"
+
+
+def _open_for_reading(path: Path) -> TextIO:
+    """Open a day file so that a damaged byte cannot stop the read.
+
+    Samples are written with `ensure_ascii=False`, so a write cut off inside a
+    multi-byte character leaves invalid UTF-8 at the end of the file. Replacing
+    those bytes turns that into an ordinary damaged line, which the JSON parser
+    then rejects, instead of a UnicodeDecodeError that loses the whole read.
+    """
+    return path.open("r", encoding="utf-8", errors="replace")
 
 
 def list_days(root: Path = DEFAULT_ROOT) -> List[Path]:
@@ -128,7 +138,7 @@ def read_samples(
 
     for path in list_days(root):
         files += 1
-        with path.open("r", encoding="utf-8") as handle:
+        with _open_for_reading(path) as handle:
             for line in handle:
                 line = line.strip()
                 if not line:
@@ -153,11 +163,17 @@ def coverage(root: Path = DEFAULT_ROOT) -> List[Tuple[str, int]]:
     """(day, sample count) pairs, so an interrupted collection is visible.
 
     The roadmap's main risk is a collector that quietly stopped. A day with far
-    fewer samples than its neighbours is how that shows up.
+    fewer samples than its neighbours is how that shows up. Only usable samples
+    count, the same ones `read_samples` returns, so a day of damaged lines does
+    not look healthy.
     """
     out = []
     for path in list_days(root):
-        with path.open("r", encoding="utf-8") as handle:
-            count = sum(1 for line in handle if line.strip())
+        with _open_for_reading(path) as handle:
+            count = sum(
+                1
+                for line in handle
+                if line.strip() and _parse_line(line.strip()) is not None
+            )
         out.append((path.stem, count))
     return out

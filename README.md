@@ -9,8 +9,8 @@ trained and then compared against that baseline honestly.
 The collector works and is ready to run, stored samples parse into one time series
 table, and each row carries the macOS estimate as the baseline to beat and the time the
 battery actually lasted, reconstructed afterwards. The regression model is written and
-tested on synthetic sessions only. It has not been fitted on real data, so there are no
-results yet.
+tested on synthetic sessions only, as is the scoring against macOS. Neither has run on
+real data, so there are no results yet.
 
 ## Everything stays on this machine
 
@@ -59,6 +59,9 @@ samples around a sleep are exactly the ones worth having.
 
 The plist is generated at install time and never committed, because it has to carry
 absolute paths to this checkout.
+
+The agent writes its output to `data/logs/collect.out` and `data/logs/collect.err`,
+git-ignored like the rest of `data/`. If samples stop appearing, look there first.
 
 ## What one sample contains
 
@@ -178,7 +181,7 @@ Then each row in a session gets its target, with `target_status` saying which ki
 
 | Status | Columns set |
 |---|---|
-| `exact` | `actual_remaining_min` and `empty_at`, the session ran out |
+| `exact` | `actual_remaining_min`, `empty_at` and `remaining_at_least_min`, the session ran out |
 | `censored` | `remaining_at_least_min` only, the session ended first |
 | `none` | nothing, the row is on a charger |
 
@@ -219,7 +222,8 @@ print(coverage(items))        # how often each feature has a value
 - A rate needs at least 10 minutes of history in the session, so the first samples
   after unplugging have none.
 - Context: `load_per_cpu`, `wifi_on`, `brightness_fraction`, `temperature_c` and
-  `hour_of_day`. The foreground application is not a feature yet, since turning bundle
+  `hour_of_day`. The hour is read at the offset stored with the sample, and the
+  collector stores UTC, so it is not the local time of day. The foreground application is not a feature yet, since turning bundle
   ids into categories is a choice better made with data in hand.
 - Missing values stay None. Filling them is the model's job.
 
@@ -262,6 +266,26 @@ predicted = cross_predict(items)   # one per example, None where it cannot be fi
 - With only one full discharge collected, its rows get no prediction, because the
   other sessions hold no exact row to fit on. Those entries stay None.
 
+## Scoring against macOS
+
+`battery.evaluate` compares the held out predictions with the macOS estimate:
+
+```bash
+python -m battery.evaluate report             # 10 point charge bands
+python -m battery.evaluate report --band 20
+```
+
+- A row is scored only when it has the real outcome, a held out prediction and a macOS
+  estimate. A row missing one of them is dropped for both sides, so both estimators
+  answer the same questions.
+- Censored rows give no error. They only count how often an estimate fell below what
+  the battery really lasted (`model_below_bound`, `macos_below_bound`).
+- Rows of a session are near copies, so `scored_sessions` is the real sample size. The
+  session means give each session one vote, where the row means favour long sessions.
+- The charge table is what the error chart will plot, and it shows where macOS wins.
+
+The code is tested on made up numbers only. There are no real scores yet.
+
 ## Verified on this machine
 
 A four sample run, all fields recovered from the stored text:
@@ -283,7 +307,12 @@ capacity.
 ## Run the tests
 
 ```bash
+pip install -e '.[dev]'
 pytest
 ```
+
+The tests run on fixtures under `tests/` and never call `pmset` or `ioreg`, so they
+pass on any system. `tests/test_model.py` is skipped unless the `analysis` extra is
+installed too.
 
 Roadmap and progress: [TODO.md](TODO.md)

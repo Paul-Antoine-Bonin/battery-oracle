@@ -1,5 +1,6 @@
 """Tests for the append-only JSONL store."""
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -85,6 +86,18 @@ def test_a_sample_after_a_truncated_line_is_kept(tmp_path):
         after.isoformat(),
     ]
     assert report.skipped_lines == 1
+
+
+def test_a_line_cut_inside_a_character_costs_one_sample(tmp_path):
+    good = append_sample(sample(), root=tmp_path)
+    cut = json.dumps({**sample(), "note": "é"}, ensure_ascii=False).encode("utf-8")
+    with good.open("ab") as handle:
+        handle.write(cut[: cut.index("é".encode("utf-8")) + 1])
+
+    report = read_samples(root=tmp_path)
+    assert report.count == 1
+    assert report.skipped_lines == 1
+    assert coverage(root=tmp_path) == [("2026-08-16", 1)]
 
 
 def test_appending_adds_no_blank_lines(tmp_path):
@@ -174,5 +187,21 @@ def test_coverage_counts_samples_per_day(tmp_path):
     assert coverage(root=tmp_path) == [("2026-08-16", 2), ("2026-08-17", 1)]
 
 
+def test_coverage_leaves_out_damaged_lines(tmp_path):
+    path = append_sample(sample(), root=tmp_path)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"sampled_at": "2026-08\n')
+        handle.write('["not", "a", "sample"]\n')
+
+    assert coverage(root=tmp_path) == [("2026-08-16", 1)]
+    assert sum(n for _, n in coverage(root=tmp_path)) == read_samples(root=tmp_path).count
+
+
 def test_coverage_on_an_empty_tree(tmp_path):
     assert coverage(root=tmp_path) == []
+
+
+def test_a_naive_sample_is_refused_and_nothing_is_written(tmp_path):
+    with pytest.raises(ValueError):
+        append_sample(sample(datetime(2026, 8, 16, 20, 0)), root=tmp_path)
+    assert list_days(tmp_path) == []

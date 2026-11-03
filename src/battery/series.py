@@ -12,7 +12,7 @@ every past sample, not only the new ones.
 CSV rather than Parquet so the collector side keeps working with the standard
 library alone. An empty cell means None, the same None the parser returned.
 
-Three things are added to what `parse_sample` gives:
+Four things are added to what `parse_sample` gives:
 
 - `schema`, so a row from before the context commands existed can be told
   apart from one where they failed.
@@ -46,6 +46,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 from .baseline import POWER_MISMATCH, SCORABLE, baseline_fields
 from .parse import BatteryState, ContextState, PmsetState, parse_sample
 from .store import DEFAULT_ROOT, read_samples
+from .sessions import DEFAULT_MAX_GAP_S
 from .target import CENSORED, EXACT, target_fields
 
 DEFAULT_OUT = Path("data/series/samples.csv")
@@ -185,16 +186,27 @@ def read_csv(path: Path = DEFAULT_OUT) -> List[dict]:
     """
     with Path(path).open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
-        return [
-            {
-                key: _typed(value, COLUMN_TYPES.get(key, str))
-                for key, value in record.items()
-            }
-            for record in reader
-        ]
+        rows = []
+        for record in reader:
+            # DictReader marks a short row with None values and a long one
+            # with a None key.
+            if None in record or None in record.values():
+                raise ValueError(
+                    f"{path}: line {reader.line_num} has the wrong number of "
+                    f"cells, rebuild the table with python -m battery.series build"
+                )
+            rows.append(
+                {
+                    key: _typed(value, COLUMN_TYPES.get(key, str))
+                    for key, value in record.items()
+                }
+            )
+        return rows
 
 
-def summarize(series: Series, gap_threshold_s: float = 900.0) -> Dict[str, object]:
+def summarize(
+    series: Series, gap_threshold_s: float = DEFAULT_MAX_GAP_S
+) -> Dict[str, object]:
     """Counts that show whether the series is usable yet.
 
     `on_battery_with_estimate` counts every estimate given on battery power.

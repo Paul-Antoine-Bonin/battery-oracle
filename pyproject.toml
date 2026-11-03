@@ -14,6 +14,7 @@ dev = [
     "pytest>=8",
 ]
 analysis = [
+    "numpy>=1.24",
     "pandas>=2.0",
     "pyarrow>=15.0",
     "scikit-learn>=1.3",

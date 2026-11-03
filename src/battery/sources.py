@@ -22,10 +22,10 @@ other sample and never belongs in the repository, in fixtures or anywhere else.
 The context sources are optional. A sample where one of them failed is still a
 full battery sample, so they never block the collector from starting.
 
-Raw text is stored rather than parsed values. Parsing is the next step of the
-roadmap, and the ordering matters: collection has to start now, because the
-target variable needs months of real discharge cycles. Keeping the raw output
-means a field nobody thought to extract today is still recoverable from
+Raw text is stored rather than parsed values, and `battery.parse` reads it
+back later. The ordering matters: collection could not wait for the parsers,
+because the target variable needs months of real discharge cycles. Keeping the
+raw output means a field nobody thought to extract today is still recoverable from
 samples taken today.
 
 Nothing here reaches the network, and no command output leaves the machine.
@@ -117,6 +117,8 @@ def run_command(
             list(argv),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             check=False,
         )
