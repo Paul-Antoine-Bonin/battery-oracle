@@ -143,3 +143,18 @@ def test_counts_list_every_reason():
 
 def test_no_rows_no_sessions():
     assert find_sessions([]) == []
+
+
+def test_zero_current_with_no_charger_is_not_discharging():
+    assert not is_discharging(
+        {"ioreg_ok": True, "external_connected": False, "amperage_ma": 0}
+    )
+
+
+def test_no_current_reading_falls_back_to_the_charger_flag():
+    assert is_discharging(
+        {"ioreg_ok": True, "external_connected": False, "amperage_ma": None}
+    )
+    assert not is_discharging(
+        {"ioreg_ok": True, "external_connected": None, "amperage_ma": None}
+    )
