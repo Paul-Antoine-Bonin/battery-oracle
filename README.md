@@ -9,8 +9,8 @@ trained and then compared against that baseline honestly.
 The collector works and is ready to run, stored samples parse into one time series
 table, and each row carries the macOS estimate as the baseline to beat and the time the
 battery actually lasted, reconstructed afterwards. The regression model is written and
-tested on synthetic sessions only. It has not been fitted on real data, so there are no
-results yet.
+tested on synthetic sessions only, as is the scoring against macOS. Neither has run on
+real data, so there are no results yet.
 
 ## Everything stays on this machine
 
@@ -265,6 +265,26 @@ predicted = cross_predict(items)   # one per example, None where it cannot be fi
   from these predictions, never from rows the model was fitted on.
 - With only one full discharge collected, its rows get no prediction, because the
   other sessions hold no exact row to fit on. Those entries stay None.
+
+## Scoring against macOS
+
+`battery.evaluate` compares the held out predictions with the macOS estimate:
+
+```bash
+python -m battery.evaluate report             # 10 point charge bands
+python -m battery.evaluate report --band 20
+```
+
+- A row is scored only when it has the real outcome, a held out prediction and a macOS
+  estimate. A row missing one of them is dropped for both sides, so both estimators
+  answer the same questions.
+- Censored rows give no error. They only count how often an estimate fell below what
+  the battery really lasted (`model_below_bound`, `macos_below_bound`).
+- Rows of a session are near copies, so `scored_sessions` is the real sample size. The
+  session means give each session one vote, where the row means favour long sessions.
+- The charge table is what the error chart will plot, and it shows where macOS wins.
+
+The code is tested on made up numbers only. There are no real scores yet.
 
 ## Verified on this machine
 
