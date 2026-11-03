@@ -178,7 +178,7 @@ Then each row in a session gets its target, with `target_status` saying which ki
 
 | Status | Columns set |
 |---|---|
-| `exact` | `actual_remaining_min` and `empty_at`, the session ran out |
+| `exact` | `actual_remaining_min`, `empty_at` and `remaining_at_least_min`, the session ran out |
 | `censored` | `remaining_at_least_min` only, the session ended first |
 | `none` | nothing, the row is on a charger |
 
