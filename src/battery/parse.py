@@ -307,13 +307,25 @@ _CONTEXT_PARSERS = {
 }
 
 
+def _result(commands: dict, name: str) -> dict:
+    """One stored command result, empty if it is not the expected shape."""
+    result = commands.get(name)
+    return result if isinstance(result, dict) else {}
+
+
+def _stdout(result: dict) -> str:
+    """The text of a command that succeeded, empty for anything else."""
+    stdout = result.get("stdout")
+    return stdout if result.get("ok") and isinstance(stdout, str) else ""
+
+
 def parse_context(commands: dict) -> ContextState:
     """The context half of a sample. Missing or failed commands leave None."""
     state = ContextState()
     for name, parser in _CONTEXT_PARSERS.items():
-        result = commands.get(name, {})
+        result = _result(commands, name)
         if result.get("ok"):
-            parser(result.get("stdout", ""), state)
+            parser(_stdout(result), state)
     return state
 
 
@@ -327,15 +339,17 @@ def parse_sample(sample: dict) -> dict:
     samples have no context commands, so their context fields are all None,
     and schema 2 samples have no `foreground_app`.
     """
-    commands = sample.get("commands", {})
-    ioreg = commands.get("ioreg_battery", {})
-    pmset = commands.get("pmset_batt", {})
+    commands = sample.get("commands")
+    if not isinstance(commands, dict):
+        commands = {}
+    ioreg = _result(commands, "ioreg_battery")
+    pmset = _result(commands, "pmset_batt")
 
     ioreg_ok = bool(ioreg.get("ok"))
     pmset_ok = bool(pmset.get("ok"))
 
-    battery = parse_ioreg(ioreg.get("stdout", "") if ioreg_ok else "")
-    macos = parse_pmset(pmset.get("stdout", "") if pmset_ok else "")
+    battery = parse_ioreg(_stdout(ioreg))
+    macos = parse_pmset(_stdout(pmset))
 
     row = {
         "sampled_at": sample.get("sampled_at"),
