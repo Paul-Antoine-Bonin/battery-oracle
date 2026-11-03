@@ -23,7 +23,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, TextIO, Tuple
 
 DEFAULT_ROOT = Path("data/raw")
 
@@ -64,6 +64,17 @@ def _ends_mid_line(path: Path) -> bool:
     with path.open("rb") as handle:
         handle.seek(-1, 2)
         return handle.read(1) != b"\n"
+
+
+def _open_for_reading(path: Path) -> TextIO:
+    """Open a day file so that a damaged byte cannot stop the read.
+
+    Samples are written with `ensure_ascii=False`, so a write cut off inside a
+    multi-byte character leaves invalid UTF-8 at the end of the file. Replacing
+    those bytes turns that into an ordinary damaged line, which the JSON parser
+    then rejects, instead of a UnicodeDecodeError that loses the whole read.
+    """
+    return path.open("r", encoding="utf-8", errors="replace")
 
 
 def list_days(root: Path = DEFAULT_ROOT) -> List[Path]:
@@ -128,7 +139,7 @@ def read_samples(
 
     for path in list_days(root):
         files += 1
-        with path.open("r", encoding="utf-8") as handle:
+        with _open_for_reading(path) as handle:
             for line in handle:
                 line = line.strip()
                 if not line:
@@ -157,7 +168,7 @@ def coverage(root: Path = DEFAULT_ROOT) -> List[Tuple[str, int]]:
     """
     out = []
     for path in list_days(root):
-        with path.open("r", encoding="utf-8") as handle:
+        with _open_for_reading(path) as handle:
             count = sum(1 for line in handle if line.strip())
         out.append((path.stem, count))
     return out
