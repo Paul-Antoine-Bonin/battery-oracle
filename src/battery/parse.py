@@ -205,6 +205,7 @@ _LOADAVG = re.compile(r"\{\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\}")
 _WIFI_POWER = re.compile(r"Wi-Fi Power \([^)]*\):\s*(On|Off)\b")
 _BRIGHTNESS = re.compile(r'"brightness"=\{([^}]*)\}')
 _PLIST_INT = re.compile(r'"(\w+)"=(-?\d+)')
+_BUNDLE_ID = re.compile(r'"CFBundleIdentifier"\s*=\s*"([^"]+)"')
 
 
 @dataclass
@@ -218,6 +219,7 @@ class ContextState:
     load_per_cpu: Optional[float] = None     # load_1m over logical_cpus
     wifi_on: Optional[bool] = None
     brightness_fraction: Optional[float] = None   # 0.0 to 1.0, built-in panel
+    foreground_app: Optional[str] = None     # bundle id; personal, stays in data/
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -279,10 +281,28 @@ def parse_brightness(text: str, state: Optional[ContextState] = None) -> Context
     return state
 
 
+def parse_foreground_app(
+    text: str, state: Optional[ContextState] = None
+) -> ContextState:
+    """Bundle id of the frontmost application, from `lsappinfo info`.
+
+    The output is one `"CFBundleIdentifier"="..."` line. At the login window,
+    or while nothing has focus, there is no such line and the field stays None.
+    The value is kept as is: grouping applications into categories would need
+    a list of application names in the code, and those stay out of the repo.
+    """
+    state = state or ContextState()
+    match = _BUNDLE_ID.search(text)
+    if match:
+        state.foreground_app = match.group(1)
+    return state
+
+
 _CONTEXT_PARSERS = {
     "cpu_load": parse_cpu_load,
     "wifi_power": parse_wifi_power,
     "display_brightness": parse_brightness,
+    "foreground_app": parse_foreground_app,
 }
 
 
@@ -303,7 +323,8 @@ def parse_sample(sample: dict) -> dict:
     prefixed `macos_`, and the context fields keep their ContextState names.
     A command that failed in that sample leaves its fields as None, and
     `ioreg_ok` and `pmset_ok` say which battery half is missing. Schema 1
-    samples have no context commands, so their context fields are all None.
+    samples have no context commands, so their context fields are all None,
+    and schema 2 samples have no `foreground_app`.
     """
     commands = sample.get("commands", {})
     ioreg = commands.get("ioreg_battery", {})

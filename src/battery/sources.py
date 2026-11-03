@@ -8,12 +8,16 @@ Two required battery sources, captured verbatim:
 - `ioreg -r -c AppleSmartBattery`    the hardware view: raw capacity, cycle
                                      count, voltage, amperage, temperature
 
-And three context sources, also verbatim, because how fast the battery drains
+And four context sources, also verbatim, because how fast the battery drains
 depends on what the machine is doing:
 
 - `sysctl -n vm.loadavg hw.logicalcpu`   load average and core count
 - `networksetup -getairportpower en0`    whether Wi-Fi is powered
 - `ioreg -r -k IODisplayParameters`      built-in display brightness
+- `lsappinfo info -only bundleid`        bundle id of the frontmost application
+
+The frontmost application is personal. It is stored under `data/` like every
+other sample and never belongs in the repository, in fixtures or anywhere else.
 
 The context sources are optional. A sample where one of them failed is still a
 full battery sample, so they never block the collector from starting.
@@ -42,6 +46,15 @@ COMMANDS: Dict[str, Sequence[str]] = {
     "ioreg_battery": ("ioreg", "-r", "-c", "AppleSmartBattery", "-w0"),
 }
 
+# `lsappinfo front` prints the session id of the frontmost application and
+# `lsappinfo info` resolves it. It needs two calls, hence the shell. The `&&`
+# makes a failing first call fail the whole command, so it is recorded as a
+# failure rather than as empty output. Only the bundle id is asked for: it is
+# stable across languages and versions, unlike the display name.
+FOREGROUND_APP_SCRIPT = (
+    'asn="$(lsappinfo front)" && lsappinfo info -only bundleid "$asn"'
+)
+
 # `en0` is the Wi-Fi interface on every MacBook without a built-in Ethernet
 # port. On other layouts the command reports an error, which is stored like
 # any other failure rather than guessed around. `-d 1` keeps the brightness
@@ -52,6 +65,7 @@ CONTEXT_COMMANDS: Dict[str, Sequence[str]] = {
     "display_brightness": (
         "ioreg", "-r", "-k", "IODisplayParameters", "-d", "1", "-w0",
     ),
+    "foreground_app": ("/bin/sh", "-c", FOREGROUND_APP_SCRIPT),
 }
 
 DEFAULT_TIMEOUT = 15.0
@@ -73,7 +87,8 @@ class Sample:
 
     sampled_at: str                          # ISO 8601, UTC, with offset
     # 1: battery commands only. 2: adds the context commands.
-    schema: int = 2
+    # 3: adds the frontmost application.
+    schema: int = 3
     commands: Dict[str, dict] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
