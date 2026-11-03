@@ -126,17 +126,22 @@ def test_zero_design_capacity_does_not_divide():
     assert state.health_fraction is None
 
 
-def test_a_lone_raw_capacity_field_falls_back_to_the_pair_without_prefix():
-    # Mixing AppleRawCurrentCapacity with MaxCapacity would divide mAh by a
-    # percentage, so both raw fields are needed before either is used.
-    text = (
-        '"AppleRawCurrentCapacity" = 1250\n'
+@pytest.mark.parametrize(
+    "raw_line", ['"AppleRawCurrentCapacity" = 1250\n', '"AppleRawMaxCapacity" = 4000\n']
+)
+def test_a_lone_raw_capacity_field_leaves_the_mah_fields_unknown(raw_line):
+    # Apple silicon with half the raw pair: CurrentCapacity and MaxCapacity
+    # are percentages, so they give the fraction but no mAh figure, and no
+    # health either.
+    text = raw_line + (
         '"CurrentCapacity" = 31\n'
         '"MaxCapacity" = 100\n'
+        '"DesignCapacity" = 5000\n'
     )
     state = parse_ioreg(text)
-    assert state.current_mah == 31
-    assert state.max_mah == 100
+    assert state.current_mah is None
+    assert state.max_mah is None
+    assert state.health_fraction is None
     assert state.charge_fraction == pytest.approx(0.31)
 
 
@@ -156,6 +161,16 @@ def test_a_number_where_a_flag_belongs_is_not_a_flag():
 def test_the_first_of_two_identical_keys_wins():
     fields = ioreg_fields('"Voltage" = 11400\n  "Voltage" = 9000\n')
     assert fields["Voltage"] == 11400
+
+
+def test_keys_of_a_child_object_are_not_read_as_top_level():
+    text = (
+        '    "CycleCount" = 500\n'
+        '    +-o Child\n'
+        '        "Voltage" = 9000\n'
+    )
+    fields = ioreg_fields(text)
+    assert fields == {"CycleCount": 500}
 
 
 def test_amperage_without_voltage_gives_no_power():
