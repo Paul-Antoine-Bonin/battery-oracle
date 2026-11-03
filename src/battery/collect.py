@@ -43,8 +43,9 @@ def run_loop(
 ) -> int:
     """Sample every `interval` seconds until interrupted.
 
-    Returns the number of samples taken. A failure inside one sample is caught
-    and reported: the loop must outlive a transient error, not die on it.
+    Returns the number of attempts, failed ones included, which is also what
+    `max_samples` limits. A failure inside one sample is caught and reported:
+    the loop must outlive a transient error, not die on it.
     """
     taken = 0
     while max_samples is None or taken < max_samples:
