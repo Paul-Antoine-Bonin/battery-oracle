@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from battery import collect
 from battery.sources import Sample
 from battery.store import read_samples
@@ -122,3 +124,24 @@ def test_status_lists_samples_per_day(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "samples : 2" in out
     assert "2026-08-16" in out
+
+
+@pytest.mark.parametrize("interval", ["0", "-5", "nan", "inf", "soon"])
+def test_loop_refuses_an_unusable_interval(monkeypatch, tmp_path, capsys, interval):
+    monkeypatch.setattr(collect, "missing_tools", lambda: [])
+    monkeypatch.setattr(collect, "run_loop", lambda **kwargs: pytest.fail("ran"))
+
+    with pytest.raises(SystemExit) as stopped:
+        collect.main(["--root", str(tmp_path), "loop", f"--interval={interval}"])
+
+    assert stopped.value.code == 2
+    assert "--interval" in capsys.readouterr().err
+
+
+def test_loop_passes_a_valid_interval_on(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(collect, "missing_tools", lambda: [])
+    monkeypatch.setattr(collect, "run_loop", lambda **kwargs: seen.update(kwargs))
+
+    assert collect.main(["--root", str(tmp_path), "loop", "--interval", "0.5"]) == 0
+    assert seen["interval"] == 0.5

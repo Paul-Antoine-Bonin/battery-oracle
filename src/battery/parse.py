@@ -216,10 +216,7 @@ def parse_pmset(text: str) -> PmsetState:
     return out
 
 
-# A comma is accepted as the decimal separator too, in case the output
-# follows a locale such as French.
-_LOAD = r"(\d+(?:[.,]\d+)?)"
-_LOADAVG = re.compile(r"\{\s*" + _LOAD + r"\s+" + _LOAD + r"\s+" + _LOAD + r"\s*\}")
+_LOADAVG = re.compile(r"\{\s*([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*\}")
 _WIFI_POWER = re.compile(r"Wi-Fi Power \([^)]*\):\s*(On|Off)\b")
 _BRIGHTNESS = re.compile(r'"brightness"=\{([^}]*)\}')
 _PLIST_INT = re.compile(r'"(\w+)"=(-?\d+)')
@@ -248,7 +245,8 @@ def parse_cpu_load(text: str, state: Optional[ContextState] = None) -> ContextSt
 
     The output is `{ 2.15 1.98 1.87 }` on the first line and the core count on
     the second. Load is also given per core, since a load of 4 means something
-    different on 8 cores than on 4.
+    different on 8 cores than on 4. A decimal comma is accepted too, since the
+    number format can follow the locale of the shell that ran the command.
     """
     state = state or ContextState()
     loads = _LOADAVG.search(text)
@@ -324,13 +322,25 @@ _CONTEXT_PARSERS = {
 }
 
 
+def _result(commands: dict, name: str) -> dict:
+    """One stored command result, empty if it is not the expected shape."""
+    result = commands.get(name)
+    return result if isinstance(result, dict) else {}
+
+
+def _stdout(result: dict) -> str:
+    """The text of a command that succeeded, empty for anything else."""
+    stdout = result.get("stdout")
+    return stdout if result.get("ok") and isinstance(stdout, str) else ""
+
+
 def parse_context(commands: dict) -> ContextState:
     """The context half of a sample. Missing or failed commands leave None."""
     state = ContextState()
     for name, parser in _CONTEXT_PARSERS.items():
-        result = commands.get(name, {})
+        result = _result(commands, name)
         if result.get("ok"):
-            parser(result.get("stdout", ""), state)
+            parser(_stdout(result), state)
     return state
 
 
@@ -344,15 +354,17 @@ def parse_sample(sample: dict) -> dict:
     samples have no context commands, so their context fields are all None,
     and schema 2 samples have no `foreground_app`.
     """
-    commands = sample.get("commands", {})
-    ioreg = commands.get("ioreg_battery", {})
-    pmset = commands.get("pmset_batt", {})
+    commands = sample.get("commands")
+    if not isinstance(commands, dict):
+        commands = {}
+    ioreg = _result(commands, "ioreg_battery")
+    pmset = _result(commands, "pmset_batt")
 
     ioreg_ok = bool(ioreg.get("ok"))
     pmset_ok = bool(pmset.get("ok"))
 
-    battery = parse_ioreg(ioreg.get("stdout", "") if ioreg_ok else "")
-    macos = parse_pmset(pmset.get("stdout", "") if pmset_ok else "")
+    battery = parse_ioreg(_stdout(ioreg))
+    macos = parse_pmset(_stdout(pmset))
 
     row = {
         "sampled_at": sample.get("sampled_at"),
