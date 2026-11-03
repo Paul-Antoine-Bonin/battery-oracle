@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from battery.sessions import EMPTY, GAP, OPEN, PLUGGED
 from battery.target import (
     CENSORED,
@@ -108,3 +110,10 @@ def test_counts_list_every_status():
 
 def test_no_rows_no_targets():
     assert target_fields([]) == []
+
+
+def test_unsorted_rows_are_rejected():
+    rows = drain(0, 0.04, 3)
+    rows.reverse()
+    with pytest.raises(ValueError, match="sorted by instant"):
+        target_fields(rows)
