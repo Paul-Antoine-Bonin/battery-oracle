@@ -13,7 +13,7 @@ is:
 
 | Status | Meaning |
 |---|---|
-| `exact` | the session ran out, `actual_remaining_min` is set |
+| `exact` | the session ran out, `actual_remaining_min` and the bound are set |
 | `censored` | the session ended first, only `remaining_at_least_min` is set |
 | `none` | the row is not part of a discharge session |
 
