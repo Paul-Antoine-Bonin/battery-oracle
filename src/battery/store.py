@@ -164,11 +164,17 @@ def coverage(root: Path = DEFAULT_ROOT) -> List[Tuple[str, int]]:
     """(day, sample count) pairs, so an interrupted collection is visible.
 
     The roadmap's main risk is a collector that quietly stopped. A day with far
-    fewer samples than its neighbours is how that shows up.
+    fewer samples than its neighbours is how that shows up. Only usable samples
+    count, the same ones `read_samples` returns, so a day of damaged lines does
+    not look healthy.
     """
     out = []
     for path in list_days(root):
         with _open_for_reading(path) as handle:
-            count = sum(1 for line in handle if line.strip())
+            count = sum(
+                1
+                for line in handle
+                if line.strip() and _parse_line(line.strip()) is not None
+            )
         out.append((path.stem, count))
     return out
