@@ -199,3 +199,9 @@ def test_coverage_leaves_out_damaged_lines(tmp_path):
 
 def test_coverage_on_an_empty_tree(tmp_path):
     assert coverage(root=tmp_path) == []
+
+
+def test_a_naive_sample_is_refused_and_nothing_is_written(tmp_path):
+    with pytest.raises(ValueError):
+        append_sample(sample(datetime(2026, 8, 16, 20, 0)), root=tmp_path)
+    assert list_days(tmp_path) == []
