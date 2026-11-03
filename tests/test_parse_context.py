@@ -150,3 +150,9 @@ def test_a_schema_3_sample_row_carries_the_foreground_app():
 def test_a_failed_foreground_app_command_leaves_none():
     state = parse_context({"foreground_app": failed("exit 127")})
     assert state.foreground_app is None
+
+
+def test_load_with_a_decimal_comma():
+    state = parse_cpu_load("{ 2,50 1,25 0,75 }\n8\n")
+    assert (state.load_1m, state.load_5m, state.load_15m) == (2.5, 1.25, 0.75)
+    assert state.load_per_cpu == 2.5 / 8
