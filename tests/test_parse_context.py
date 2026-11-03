@@ -42,6 +42,12 @@ def test_cpu_load_without_a_core_count_has_no_per_core_figure():
     assert state.load_per_cpu is None
 
 
+def test_cpu_load_accepts_a_comma_as_decimal_separator():
+    state = parse_cpu_load("{ 2,15 1,98 1,87 }\n8\n")
+    assert (state.load_1m, state.load_5m, state.load_15m) == (2.15, 1.98, 1.87)
+    assert state.logical_cpus == 8
+
+
 def test_wifi_on_and_off():
     assert parse_wifi_power(fixture("networksetup_wifi_on.txt")).wifi_on is True
     assert parse_wifi_power(fixture("networksetup_wifi_off.txt")).wifi_on is False
