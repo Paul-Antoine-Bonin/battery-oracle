@@ -201,7 +201,7 @@ def parse_pmset(text: str) -> PmsetState:
     return out
 
 
-_LOADAVG = re.compile(r"\{\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\}")
+_LOADAVG = re.compile(r"\{\s*([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*\}")
 _WIFI_POWER = re.compile(r"Wi-Fi Power \([^)]*\):\s*(On|Off)\b")
 _BRIGHTNESS = re.compile(r'"brightness"=\{([^}]*)\}')
 _PLIST_INT = re.compile(r'"(\w+)"=(-?\d+)')
@@ -230,13 +230,14 @@ def parse_cpu_load(text: str, state: Optional[ContextState] = None) -> ContextSt
 
     The output is `{ 2.15 1.98 1.87 }` on the first line and the core count on
     the second. Load is also given per core, since a load of 4 means something
-    different on 8 cores than on 4.
+    different on 8 cores than on 4. A decimal comma is accepted too, since the
+    number format can follow the locale of the shell that ran the command.
     """
     state = state or ContextState()
     loads = _LOADAVG.search(text)
     if loads:
         state.load_1m, state.load_5m, state.load_15m = (
-            float(loads.group(i)) for i in (1, 2, 3)
+            float(loads.group(i).replace(",", ".")) for i in (1, 2, 3)
         )
     for line in text.splitlines():
         if line.strip().isdigit():
