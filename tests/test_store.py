@@ -1,5 +1,6 @@
 """Tests for the append-only JSONL store."""
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -85,6 +86,18 @@ def test_a_sample_after_a_truncated_line_is_kept(tmp_path):
         after.isoformat(),
     ]
     assert report.skipped_lines == 1
+
+
+def test_a_line_cut_inside_a_character_costs_one_sample(tmp_path):
+    good = append_sample(sample(), root=tmp_path)
+    cut = json.dumps({**sample(), "note": "é"}, ensure_ascii=False).encode("utf-8")
+    with good.open("ab") as handle:
+        handle.write(cut[: cut.index("é".encode("utf-8")) + 1])
+
+    report = read_samples(root=tmp_path)
+    assert report.count == 1
+    assert report.skipped_lines == 1
+    assert coverage(root=tmp_path) == [("2026-08-16", 2)]
 
 
 def test_appending_adds_no_blank_lines(tmp_path):
