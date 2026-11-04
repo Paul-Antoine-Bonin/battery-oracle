@@ -260,3 +260,13 @@ def test_the_report_command_runs_from_a_written_table(tmp_path, capsys):
 def test_the_report_command_says_when_there_is_no_table(tmp_path, capsys):
     assert main(["--table", str(tmp_path / "missing.csv"), "report"]) == 1
     assert "no table" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("band", ["0", "101", "ten"])
+def test_the_report_command_refuses_a_bad_band_before_reading_the_table(
+    tmp_path, capsys, band
+):
+    with pytest.raises(SystemExit) as stopped:
+        main(["--table", str(tmp_path / "missing.csv"), "report", "--band", band])
+    assert stopped.value.code == 2
+    assert "--band" in capsys.readouterr().err

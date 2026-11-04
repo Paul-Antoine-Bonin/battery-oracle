@@ -227,6 +227,17 @@ def report_lines(
     return lines
 
 
+def _band_pct(text: str) -> int:
+    """A `--band` value, checked here so a typo fails before the model is fitted."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a whole number: {text!r}") from None
+    if not 1 <= value <= 100:
+        raise argparse.ArgumentTypeError(f"must be between 1 and 100, got {text}")
+    return value
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     # Imported here so scoring works without the analysis extra.
     from .series import DEFAULT_OUT, read_csv
@@ -235,7 +246,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--table", type=Path, default=DEFAULT_OUT)
     sub = parser.add_subparsers(dest="command", required=True)
     report = sub.add_parser("report", help="mean absolute error of both estimators")
-    report.add_argument("--band", type=int, default=DEFAULT_BAND_PCT)
+    report.add_argument("--band", type=_band_pct, default=DEFAULT_BAND_PCT)
     args = parser.parse_args(argv)
 
     if not args.table.exists():
