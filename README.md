@@ -9,8 +9,8 @@ trained and then compared against that baseline honestly.
 The collector works and is ready to run, stored samples parse into one time series
 table, and each row carries the macOS estimate as the baseline to beat and the time the
 battery actually lasted, reconstructed afterwards. The regression model is written and
-tested on synthetic sessions only, as is the scoring against macOS. Neither has run on
-real data, so there are no results yet.
+tested on synthetic sessions only, as are the scoring against macOS and its chart. None
+of it has run on real data, so there are no results yet.
 
 ## Everything stays on this machine
 
@@ -282,7 +282,21 @@ python -m battery.evaluate report --band 20
   the battery really lasted (`model_below_bound`, `macos_below_bound`).
 - Rows of a session are near copies, so `scored_sessions` is the real sample size. The
   session means give each session one vote, where the row means favour long sessions.
-- The charge table is what the error chart will plot, and it shows where macOS wins.
+- The charge table shows where macOS wins, and the chart below draws the same numbers.
+
+```bash
+python -m battery.chart                       # data/charts/error_by_charge.png
+python -m battery.chart --band 20 --out error.png
+```
+
+- One pair of bars per charge band, the model and macOS, on one axis in minutes.
+- Every band keeps its slot. A band with no scored row stays blank instead of being
+  closed up, so the chart shows where the data runs out.
+- Each band is labelled with its session count, and the subtitle gives the totals. A
+  bar resting on one session says little, whichever estimator it favours.
+- With nothing scored the command says so and writes no file.
+- The chart lands under `data/`, git-ignored like everything else derived from the
+  samples.
 
 The code is tested on made up numbers only. There are no real scores yet.
 
