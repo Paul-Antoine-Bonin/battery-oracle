@@ -9,7 +9,7 @@ trained and then compared against that baseline honestly.
 The collector works and is ready to run, stored samples parse into one time series
 table, and each row carries the macOS estimate as the baseline to beat and the time the
 battery actually lasted, reconstructed afterwards. The regression model is written and
-tested on synthetic sessions only, as are the scoring against macOS and its chart. None
+tested on synthetic sessions only, as are the scoring against macOS, its chart and the written summary. None
 of it has run on real data, so there are no results yet.
 
 ## Everything stays on this machine
@@ -300,6 +300,20 @@ python -m battery.chart --band 20 --out error.png
 - With nothing scored the command says so and writes no file.
 - The chart lands under `data/`, git-ignored like everything else derived from the
   samples.
+
+```bash
+python -m battery.results                     # data/results.md
+python -m battery.results --band 20 --out results.md
+```
+
+- This writes the summary for this README from the scores, so the sentences follow the
+  numbers. It is a draft to read and copy over. Nothing edits the README.
+- The headline uses the means over sessions and names whichever estimator came out
+  ahead, macOS included. Every band and situation is then listed under where the model
+  wins, where macOS wins, or too little data.
+- A band or situation under three sessions gets no verdict. Under three sessions in
+  total, the summary opens by saying it is too early to call.
+- With nothing scored the command says so and writes no file.
 
 The code is tested on made up numbers only. There are no real scores yet.
 
