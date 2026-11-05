@@ -186,7 +186,8 @@ Then each row in a session gets its target, with `target_status` saying which ki
 | `none` | nothing, the row is on a charger |
 
 - `empty` needs the gap after the last sample. A Mac plugged in at 2% shows the next
-  row on a charger with no gap, so it never ran out and stays censored.
+  row on a charger with no gap, so it never ran out and stays censored. A Mac that
+  slept at 2% and woke on battery with no more charge stays censored too.
 - `empty_at` is the last sample of the session. The battery ran out somewhere before
   the next sample that never came, so `actual_remaining_min` can be short by up to one
   sampling interval.
