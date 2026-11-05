@@ -283,6 +283,9 @@ python -m battery.evaluate report --band 20
 - Rows of a session are near copies, so `scored_sessions` is the real sample size. The
   session means give each session one vote, where the row means favour long sessions.
 - The charge table shows where macOS wins, and the chart below draws the same numbers.
+- A second table splits the same rows by situation: light, moderate or heavy load per
+  CPU, dim or bright display, Wi-Fi on or off. A row missing a reading is left out of
+  that split only. The splits overlap, so their rows do not add up to the total.
 
 ```bash
 python -m battery.chart                       # data/charts/error_by_charge.png
