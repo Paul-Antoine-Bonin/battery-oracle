@@ -31,6 +31,13 @@ from .dataset import Example, example_counts, examples
 
 DEFAULT_BAND_PCT = 10
 
+# Limits of the situations in `by_situation`. They are round numbers picked
+# before any real score exists, so they cannot have been tuned to favour either
+# estimator.
+LIGHT_LOAD_PER_CPU = 0.25
+HEAVY_LOAD_PER_CPU = 0.75
+BRIGHT_FRACTION = 0.5
+
 
 @dataclass(frozen=True)
 class Scored:
@@ -128,6 +135,16 @@ def compare(scored: Sequence[Scored]) -> dict:
     }
 
 
+def _group_errors(group: Sequence[Scored]) -> dict:
+    """How much a group of rows rests on, and the row mean of each estimator."""
+    return {
+        "rows": len(group),
+        "sessions": len({item.session for item in group}),
+        "model_mae": _mae([item.model_error for item in group]),
+        "macos_mae": _mae([item.macos_error for item in group]),
+    }
+
+
 def by_charge(
     scored: Sequence[Scored], band_pct: int = DEFAULT_BAND_PCT
 ) -> List[dict]:
@@ -151,13 +168,62 @@ def by_charge(
         {
             "low_pct": band * band_pct,
             "high_pct": min((band + 1) * band_pct, 100),
-            "rows": len(group),
-            "sessions": len({item.session for item in group}),
-            "model_mae": _mae([item.model_error for item in group]),
-            "macos_mae": _mae([item.macos_error for item in group]),
+            **_group_errors(group),
         }
         for band, group in sorted(groups.items())
     ]
+
+
+def _load_group(row: dict) -> Optional[str]:
+    load = row.get("load_per_cpu")
+    if load is None:
+        return None
+    if load < LIGHT_LOAD_PER_CPU:
+        return "light load"
+    return "moderate load" if load < HEAVY_LOAD_PER_CPU else "heavy load"
+
+
+def _brightness_group(row: dict) -> Optional[str]:
+    brightness = row.get("brightness_fraction")
+    if brightness is None:
+        return None
+    return "dim display" if brightness < BRIGHT_FRACTION else "bright display"
+
+
+def _wifi_group(row: dict) -> Optional[str]:
+    wifi = row.get("wifi_on")
+    if wifi is None:
+        return None
+    return "wifi on" if wifi else "wifi off"
+
+
+SITUATIONS = (
+    (_load_group, ("light load", "moderate load", "heavy load")),
+    (_brightness_group, ("dim display", "bright display")),
+    (_wifi_group, ("wifi on", "wifi off")),
+)
+
+
+def by_situation(rows: Sequence[dict], scored: Sequence[Scored]) -> List[dict]:
+    """Both estimators per usage situation, skipping situations with no row.
+
+    A situation is read from the row being scored, so a session can land in
+    several of them. A row missing a reading is left out of that split only.
+    The splits overlap, so their row counts do not add up to the total.
+    """
+    out = []
+    for group_of, names in SITUATIONS:
+        groups: Dict[str, List[Scored]] = {}
+        for item in scored:
+            name = group_of(rows[item.index])
+            if name is not None:
+                groups.setdefault(name, []).append(item)
+        out.extend(
+            {"name": name, **_group_errors(groups[name])}
+            for name in names
+            if name in groups
+        )
+    return out
 
 
 def bound_misses(
@@ -223,6 +289,17 @@ def report_lines(
         lines.append(
             f"{name:<12}{band['rows']:<8}{band['sessions']:<10}"
             f"{_minutes(band['model_mae']):<10}{_minutes(band['macos_mae']):<10}".rstrip()
+        )
+    situations = by_situation(rows, scored)
+    if situations:
+        lines.append("")
+        lines.append(
+            f"{'situation':<18}{'rows':<8}{'sessions':<10}{'model':<10}{'macos'}"
+        )
+    for group in situations:
+        lines.append(
+            f"{group['name']:<18}{group['rows']:<8}{group['sessions']:<10}"
+            f"{_minutes(group['model_mae']):<10}{_minutes(group['macos_mae']):<10}".rstrip()
         )
     return lines
 
