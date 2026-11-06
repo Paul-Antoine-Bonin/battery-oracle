@@ -315,6 +315,22 @@ python -m battery.results --band 20 --out results.md
   total, the summary opens by saying it is too early to call.
 - With nothing scored the command says so and writes no file.
 
+### All of it in one command
+
+```bash
+python -m battery.analyse                     # table, report, chart and summary
+python -m battery.analyse --band 20
+```
+
+- Rebuilds the table from `data/raw/`, prints the number of full discharges so far and
+  the report, then writes the chart and the summary to their usual places.
+- The model is fitted once and all three outputs come from the same held out
+  predictions. Running the separate commands fits it once each.
+- With nothing scored yet it still writes the table and prints the report, writes no
+  chart and no summary, and exits with 1.
+- Its test starts from raw command text in the store, with the current in the
+  unsigned form `ioreg` prints, and checks that a summary comes out the other end.
+
 The code is tested on made up numbers only. There are no real scores yet.
 
 ## Verified on this machine
