@@ -101,6 +101,24 @@ def test_macos_wins_get_a_section_even_when_empty():
     assert section(lines, "Where macOS wins") == ["None."]
 
 
+def test_a_tied_split_gets_its_own_section_and_no_winner():
+    items = sessions(3, 10.0, 20.0, charge=0.15) + sessions(3, 30.0, 30.0, charge=0.75)
+
+    lines = results_lines([{}], items)
+
+    assert section(lines, "Where they tie") == [
+        "- 70-80% charge: 30.0 against 30.0 minutes for macOS, 3 sessions"
+    ]
+    assert all("70-80%" not in line for line in section(lines, "Where the model wins"))
+    assert section(lines, "Where macOS wins") == ["None."]
+
+
+def test_the_tie_section_is_left_out_when_nothing_tied():
+    lines = results_lines([{}], sessions(3, 10.0, 20.0))
+
+    assert "### Where they tie" not in lines
+
+
 def test_a_split_on_too_few_sessions_gets_no_verdict():
     items = sessions(3, 10.0, 20.0, charge=0.15) + [scored(9, 1.0, 50.0, charge=0.75)]
 
