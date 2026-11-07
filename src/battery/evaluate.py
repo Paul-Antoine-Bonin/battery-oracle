@@ -14,6 +14,12 @@ how much evidence there is. The number of sessions is what matters. A long
 session also weighs more than a short one in a mean over rows, so `compare`
 gives a mean over sessions as well, and how many sessions each estimator won.
 
+The report also checks the model against the plainest alternative, the
+charge left divided by the rate it fell over the last half hour. If the fitted
+model does not beat that, it is not worth having, whatever it does against
+macOS. `against_trend` scores both on the same rows, the ones where that
+extrapolation exists.
+
 Scoring needs only the standard library. The `report` command needs the
 `analysis` extra, because it has to fit the model first.
 """
@@ -132,6 +138,34 @@ def compare(scored: Sequence[Scored]) -> dict:
         "sessions_macos_better": sum(
             s["macos_mae"] < s["model_mae"] for s in sessions
         ),
+    }
+
+
+def against_trend(
+    items: Sequence[Example], scored: Sequence[Scored]
+) -> dict:
+    """The model against the trend extrapolation, on the rows that have one.
+
+    The extrapolation is the `trend_remaining_min` feature, used as it is with
+    no cap, since that is what anyone would get by dividing the charge left by
+    the recent rate. A row whose session has under the minimum history has no
+    rate, so it has no extrapolation and is left out on both sides.
+    """
+    by_index = {item.index: item for item in items}
+    model_errors, trend_errors, sessions = [], [], set()
+    for row in scored:
+        item = by_index.get(row.index)
+        trend = None if item is None else item.features.get("trend_remaining_min")
+        if trend is None:
+            continue
+        model_errors.append(row.model_error)
+        trend_errors.append(abs(trend - row.actual_min))
+        sessions.add(row.session)
+    return {
+        "rows": len(model_errors),
+        "sessions": len(sessions),
+        "model_mae": _mae(model_errors),
+        "trend_mae": _mae(trend_errors),
     }
 
 
@@ -263,6 +297,7 @@ def report_lines(
     scored = scored_rows(rows, items, predicted)
     totals = compare(scored)
     misses = bound_misses(rows, items, predicted)
+    trend = against_trend(items, scored)
     lines = [
         f"{'examples':<24}{counts['examples']}",
         f"{'sessions_exact':<24}{counts['sessions_exact']}",
@@ -277,6 +312,11 @@ def report_lines(
         f"{'censored_rows':<24}{misses['rows']}",
         f"{'model_below_bound':<24}{misses['model_below']}",
         f"{'macos_below_bound':<24}{misses['macos_below']}",
+        "",
+        f"{'trend_rows':<24}{trend['rows']}",
+        f"{'trend_sessions':<24}{trend['sessions']}",
+        f"{'model_mae_on_trend_min':<24}{_minutes(trend['model_mae'])}",
+        f"{'trend_mae_min':<24}{_minutes(trend['trend_mae'])}",
     ]
     bands = by_charge(scored, band_pct)
     if bands:
