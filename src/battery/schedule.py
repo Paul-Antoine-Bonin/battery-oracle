@@ -107,19 +107,42 @@ def _uid() -> int:
     return os.getuid()
 
 
+def _positive_whole_seconds(text: str) -> int:
+    """An `--interval` value: whole seconds, above zero.
+
+    `StartInterval` is an integer number of seconds, and zero or less is not a
+    sampling interval. A mistyped value fails here, before anything is
+    written or loaded, instead of leaving an agent installed with a schedule
+    nobody meant.
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"not a whole number of seconds: {text!r}"
+        ) from None
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"must be above zero, got {text}")
+    return value
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
     inst = sub.add_parser("install", help="load the launchd agent")
-    inst.add_argument("--interval", type=int, default=DEFAULT_INTERVAL)
+    inst.add_argument(
+        "--interval", type=_positive_whole_seconds, default=DEFAULT_INTERVAL
+    )
     inst.add_argument("--python", type=Path, default=Path(sys.executable))
     inst.add_argument("--repo", type=Path, default=Path.cwd())
 
     sub.add_parser("uninstall", help="unload and remove the agent")
     sub.add_parser("status", help="is the agent loaded")
     show = sub.add_parser("show", help="print the plist that would be written")
-    show.add_argument("--interval", type=int, default=DEFAULT_INTERVAL)
+    show.add_argument(
+        "--interval", type=_positive_whole_seconds, default=DEFAULT_INTERVAL
+    )
     show.add_argument("--python", type=Path, default=Path(sys.executable))
     show.add_argument("--repo", type=Path, default=Path.cwd())
 
