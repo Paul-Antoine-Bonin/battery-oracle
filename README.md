@@ -282,6 +282,11 @@ python -m battery.evaluate report --band 20
   the battery really lasted (`model_below_bound`, `macos_below_bound`).
 - Rows of a session are near copies, so `scored_sessions` is the real sample size. The
   session means give each session one vote, where the row means favour long sessions.
+- The model is also scored against the plainest alternative, the charge left divided by
+  the rate it fell over the last 30 minutes (`trend_mae_min`, next to
+  `model_mae_on_trend_min` on the same rows). A model that does not beat that is not
+  worth fitting, whatever it does against macOS. Rows without enough history for a
+  rate are left out of that pair only.
 - The charge table shows where macOS wins, and the chart below draws the same numbers.
 - A second table splits the same rows by situation: light, moderate or heavy load per
   CPU, dim or bright display, Wi-Fi on or off. A row missing a reading is left out of
