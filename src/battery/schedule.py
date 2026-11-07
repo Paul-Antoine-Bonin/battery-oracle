@@ -77,13 +77,26 @@ def _launchctl(*args: str) -> subprocess.CompletedProcess:
 
 
 def install(python: Path, repo: Path, interval: int = DEFAULT_INTERVAL) -> Path:
+    """Write the plist and load it into launchd.
+
+    A failed bootstrap removes the plist again. Left in LaunchAgents, launchd
+    would load it at the next login while `status` reports it as not loaded.
+    """
+    if int(interval) <= 0:
+        raise ValueError(
+            f"interval must be a positive number of seconds, got {interval}"
+        )
     path = write_plist(build_plist(python, repo, interval))
     # bootout first so reinstalling picks up a changed interval.
     _launchctl("bootout", f"gui/{_uid()}/{LABEL}")
     result = _launchctl("bootstrap", f"gui/{_uid()}", str(path))
     if result.returncode != 0:
+        path.unlink(missing_ok=True)
+        # The exit code is always included, so the error still says something
+        # when launchctl printed nothing.
+        detail = result.stderr.strip() or result.stdout.strip() or "no output"
         raise RuntimeError(
-            f"launchctl bootstrap failed: {result.stderr.strip() or result.stdout.strip()}"
+            f"launchctl bootstrap failed (exit {result.returncode}): {detail}"
         )
     return path
 
