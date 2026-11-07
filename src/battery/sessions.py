@@ -22,7 +22,9 @@ Every session records why it ended, in `end_reason`:
 `empty` is the only reason that gives an exact target. A Mac that runs out
 stops sampling, so the session ends on a long gap with the charge near zero.
 A Mac plugged in at 2% shows the next row on a charger and no gap, so it
-counts as `plugged`, not `empty`: it never actually ran out.
+counts as `plugged`, not `empty`: it never actually ran out. A Mac that slept
+at 2% and woke still on battery with no more charge did not run out either, so
+that gap stays a `gap`.
 
 A gap breaks a session even when the Mac only slept on battery. The target
 then never spans time the collector did not observe.
@@ -107,6 +109,15 @@ def _charge_rose(before: dict, after: dict) -> bool:
     return a is not None and b is not None and b > a
 
 
+def _kept_draining(before: dict, after: dict) -> bool:
+    """Whether `after` carries on from `before`, on battery with no charge added.
+
+    A Mac that ran out cannot come back like this. It needs a charger first,
+    so the next row is on that charger or shows more charge.
+    """
+    return is_discharging(after) and not _charge_rose(before, after)
+
+
 def find_sessions(
     rows: Sequence[dict],
     max_gap_s: float = DEFAULT_MAX_GAP_S,
@@ -133,7 +144,8 @@ def find_sessions(
             gap = (_instant(row) - _instant(previous)).total_seconds()
             if gap > max_gap_s:
                 charge = charge_of(previous)
-                if charge is not None and charge <= empty_fraction:
+                ran_low = charge is not None and charge <= empty_fraction
+                if ran_low and not _kept_draining(previous, row):
                     close(EMPTY)
                 elif _charge_rose(previous, row):
                     close(PLUGGED)
