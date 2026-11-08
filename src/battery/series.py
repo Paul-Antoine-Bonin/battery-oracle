@@ -154,17 +154,22 @@ def write_csv(rows: Sequence[dict], path: Path = DEFAULT_OUT) -> Path:
 
     The file is written next to its destination and then renamed over it, so
     a reader never sees half a table, and an interrupted build leaves the
-    previous table in place.
+    previous table in place. A write that fails removes its partial file, so
+    nothing is left behind next to the table.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(path.name + ".partial")
-    with partial.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(COLUMNS)
-        for row in rows:
-            writer.writerow([_cell(row.get(column)) for column in COLUMNS])
-    os.replace(partial, path)
+    try:
+        with partial.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(COLUMNS)
+            for row in rows:
+                writer.writerow([_cell(row.get(column)) for column in COLUMNS])
+        os.replace(partial, path)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
     return path
 
 
