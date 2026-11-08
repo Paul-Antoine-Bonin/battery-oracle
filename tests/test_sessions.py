@@ -63,6 +63,15 @@ def test_plugging_in_at_two_percent_is_not_empty():
     assert find_sessions(rows)[0].end_reason == PLUGGED
 
 
+def test_sleeping_near_empty_and_waking_on_battery_is_not_empty():
+    # Hours of nothing at 2%, then still on battery at the same charge. The
+    # Mac slept, so the rows before the gap must not get an exact target.
+    rows = drain(0, 0.05, 4) + drain(300, 0.02, 2)
+    sessions = find_sessions(rows)
+
+    assert [s.end_reason for s in sessions] == [GAP, OPEN]
+
+
 def test_a_long_gap_with_charge_left_breaks_the_session():
     rows = drain(0, 0.80, 3) + drain(120, 0.76, 3)
     sessions = find_sessions(rows)
