@@ -12,6 +12,7 @@ from battery.results import (
     headline,
     main,
     results_lines,
+    trend_lines,
     winner,
     write_results,
 )
@@ -138,6 +139,57 @@ def test_the_sessions_each_side_won_are_counted():
     )
 
 
+def trend(rows, sessions, model, plain):
+    return {"rows": rows, "sessions": sessions, "model_mae": model, "trend_mae": plain}
+
+
+def test_the_summary_says_when_the_model_beats_the_trend():
+    assert trend_lines(trend(30, 3, 10.0, 25.0)) == [
+        "The model beat the trend extrapolation, at 10.0 minutes for the model "
+        "and 25.0 for the trend, mean over 30 rows from 3 sessions."
+    ]
+
+
+def test_the_summary_says_plainly_when_the_trend_beats_the_model():
+    (line,) = trend_lines(trend(30, 3, 25.0, 10.0))
+
+    assert line.startswith("The trend extrapolation beat the model,")
+    assert "the fit adds nothing" in line
+
+
+def test_the_trend_check_reports_a_tie():
+    (line,) = trend_lines(trend(30, 3, 10.01, 10.04))
+
+    assert line.startswith("The model and the trend extrapolation tied,")
+
+
+def test_the_trend_check_gives_no_verdict_on_too_few_sessions():
+    (line,) = trend_lines(trend(1, 1, 10.0, 25.0))
+
+    assert line.startswith("Too little data to say: 1 of 3 sessions needed.")
+    assert "1 row from 1 session." in line
+
+
+def test_the_trend_check_says_when_no_row_had_a_trend():
+    assert trend_lines(trend(0, 0, None, None)) == [
+        "No scored row had enough history for a trend extrapolation."
+    ]
+
+
+def test_the_trend_section_comes_last_and_only_when_asked_for():
+    items = sessions(3, 10.0, 20.0)
+
+    without = results_lines([{}], items)
+    with_trend = results_lines([{}], items, trend=trend(3, 3, 10.0, 25.0))
+
+    assert "### Against a plain trend" not in without
+    assert with_trend[: len(without)] == without
+    assert section(with_trend, "Against a plain trend") == trend_lines(
+        trend(3, 3, 10.0, 25.0)
+    )
+    assert with_trend[-1].startswith("The model beat the trend extrapolation,")
+
+
 def test_nothing_scored_is_refused():
     with pytest.raises(ValueError):
         results_lines([], [])
@@ -194,7 +246,9 @@ def test_the_results_command_runs_from_a_written_table(tmp_path, capsys):
 
     assert main(["--table", str(table), "--out", str(out), "--band", "20"]) == 0
 
-    assert "Too early to call: 2 sessions scored" in out.read_text(encoding="utf-8")
+    text = out.read_text(encoding="utf-8")
+    assert "Too early to call: 2 sessions scored" in text
+    assert "### Against a plain trend" in text
     assert "wrote" in capsys.readouterr().out
 
 

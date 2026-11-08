@@ -318,6 +318,9 @@ python -m battery.results --band 20 --out results.md
   wins, where macOS wins, or too little data.
 - A band or situation under three sessions gets no verdict. Under three sessions in
   total, the summary opens by saying it is too early to call.
+- A last section says whether the model beat the plain trend extrapolation on the rows
+  that have one, with the same three session rule. When the trend wins, it says the
+  fit adds nothing over dividing the charge left by the recent rate.
 - With nothing scored the command says so and writes no file.
 
 ### All of it in one command

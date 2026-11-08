@@ -34,7 +34,7 @@ from typing import Callable, Optional, Sequence
 
 from .chart import DEFAULT_CHART, write_chart
 from .dataset import examples
-from .evaluate import DEFAULT_BAND_PCT, report_lines, scored_rows
+from .evaluate import DEFAULT_BAND_PCT, against_trend, report_lines, scored_rows
 from .results import DEFAULT_RESULTS, write_results
 from .series import DEFAULT_OUT, load_series, read_csv, summarize, write_csv
 from .store import DEFAULT_ROOT
@@ -75,7 +75,8 @@ def analyse(
         echo("no scored rows yet, so no chart and no results were written")
         return False
     echo(f"wrote {write_chart(scored, chart, band_pct)}")
-    echo(f"wrote {write_results(rows, scored, results, band_pct)}")
+    trend = against_trend(items, scored)
+    echo(f"wrote {write_results(rows, scored, results, band_pct, trend)}")
     return True
 
 
