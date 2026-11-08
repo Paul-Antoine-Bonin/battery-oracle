@@ -121,6 +121,7 @@ def test_raw_samples_go_all_the_way_to_a_summary(tmp_path, store):
     summary = out["results"].read_text(encoding="utf-8")
     assert summary.startswith("## Results")
     assert "3 full discharges" in summary
+    assert "### Against a plain trend" in summary
 
 
 def test_the_stored_current_is_read_as_a_discharge(tmp_path, store):
