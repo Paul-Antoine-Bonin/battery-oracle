@@ -13,9 +13,14 @@ pytest.importorskip("sklearn")
 
 from battery.dataset import Example
 from battery.features import FEATURE_COLUMNS
+import battery.model as model_module
 from battery.model import (
+    ALPHA_GRID,
+    DEFAULT_ALPHA,
     MAX_REMAINING_MIN,
     MODEL_COLUMNS,
+    alpha_score,
+    choose_alpha,
     cross_predict,
     fit,
     matrix,
@@ -165,3 +170,47 @@ def test_the_only_exact_session_gets_no_cross_prediction():
 
 def test_cross_prediction_of_nothing_is_empty():
     assert cross_predict([]) == []
+
+
+def four_exact_sessions():
+    return [r for n, d in enumerate((900, 1200, 1500, 1800)) for r in session(n, d)]
+
+
+def test_an_alpha_cannot_be_scored_on_one_full_discharge():
+    items = session(0, 1200) + session(1, 1200, censored=True)
+    assert alpha_score(items, 1.0) is None
+    assert choose_alpha(items) == DEFAULT_ALPHA
+
+
+def test_the_alpha_score_skips_censored_rows():
+    exact = four_exact_sessions()
+    bounded = session(9, 1300, censored=True)
+    # The censored session changes the fits, so the score may move, but only
+    # the four exact sessions are averaged.
+    assert alpha_score(exact + bounded, 1.0) is not None
+
+
+def test_the_chosen_alpha_has_the_lowest_score():
+    items = four_exact_sessions()
+    scores = {alpha: alpha_score(items, alpha) for alpha in ALPHA_GRID}
+    assert scores[choose_alpha(items)] == min(scores.values())
+
+
+def test_a_tie_goes_to_the_larger_alpha(monkeypatch):
+    monkeypatch.setattr(model_module, "alpha_score", lambda items, alpha, rounds: 5.0)
+    assert choose_alpha(four_exact_sessions(), (0.1, 10.0, 1.0)) == 10.0
+
+
+def test_choosing_from_no_alpha_is_refused():
+    with pytest.raises(ValueError):
+        choose_alpha(four_exact_sessions(), ())
+
+
+def test_the_alpha_for_a_held_out_session_is_chosen_without_it():
+    sessions = [session(n, d) for n, d in enumerate((900, 1200, 1500, 1800))]
+    items = [r for s in sessions for r in s]
+    predicted = cross_predict(items, alphas=ALPHA_GRID)
+    kept = sessions[0] + sessions[2] + sessions[3]
+    expected = fit(kept, choose_alpha(kept)).predict([r.features for r in sessions[1]])
+    start = len(sessions[0])
+    assert predicted[start : start + len(sessions[1])] == pytest.approx(expected)
