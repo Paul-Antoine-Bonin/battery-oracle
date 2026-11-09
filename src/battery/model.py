@@ -26,6 +26,13 @@ would learn only from days the battery ran flat, which are not typical days.
 `cross_predict` is what any score must come from. Each row is predicted by a
 model that never saw its session. Scoring `fit` on its own training rows would
 report a number no live prediction could reach.
+
+The ridge strength can be fixed or chosen from a list with `choose_alpha`. The
+choice holds out one session at a time too, and scores only exact rows, since
+a censored row has no error to measure. Inside `cross_predict` it runs again
+for every held out session, on the kept sessions alone, so the session being
+predicted never weighs on its own alpha. Choosing once on all the data and
+then scoring would leak.
 """
 
 from __future__ import annotations
@@ -45,6 +52,7 @@ from .features import FEATURE_COLUMNS
 
 DEFAULT_ALPHA = 1.0
 DEFAULT_ROUNDS = 5
+ALPHA_GRID = (0.1, 1.0, 10.0, 100.0)
 MAX_REMAINING_MIN = 1440.0
 
 CAPPED_COLUMNS = ("instant_remaining_min", "trend_remaining_min")
@@ -137,24 +145,80 @@ def fit(
     return Model(pipeline)
 
 
+def alpha_score(
+    items: Sequence[Example],
+    alpha: float,
+    rounds: int = DEFAULT_ROUNDS,
+) -> Optional[float]:
+    """Mean over sessions of the held out absolute error on exact rows, in minutes.
+
+    Each session counts once, however many rows it has. None when no session
+    with an exact row could be predicted, which needs at least two sessions
+    with a full discharge.
+    """
+    predicted = _held_out(items, lambda kept: fit(kept, alpha, rounds))
+    errors = {}
+    for item, value in zip(items, predicted):
+        if item.censored or value is None:
+            continue
+        errors.setdefault(item.session, []).append(abs(value - item.minutes))
+    if not errors:
+        return None
+    return sum(sum(e) / len(e) for e in errors.values()) / len(errors)
+
+
+def choose_alpha(
+    items: Sequence[Example],
+    alphas: Sequence[float] = ALPHA_GRID,
+    rounds: int = DEFAULT_ROUNDS,
+) -> float:
+    """The alpha in `alphas` with the lowest `alpha_score` on `items`.
+
+    A tie goes to the larger alpha, the plainer model. With too few full
+    discharges to score any of them, this falls back to `DEFAULT_ALPHA`.
+    """
+    if not alphas:
+        raise ValueError("no alpha to choose from")
+    best, best_score = DEFAULT_ALPHA, None
+    for alpha in sorted(alphas, reverse=True):
+        score = alpha_score(items, alpha, rounds)
+        if score is None:
+            continue
+        if best_score is None or score < best_score - 1e-9:
+            best, best_score = alpha, score
+    return best
+
+
+def _held_out(items: Sequence[Example], train_model) -> List[Optional[float]]:
+    out: List[Optional[float]] = [None] * len(items)
+    for _, train, test in session_folds(items):
+        kept = [items[p] for p in train]
+        if all(item.censored for item in kept):
+            continue
+        model = train_model(kept)
+        predicted = model.predict([items[p].features for p in test])
+        for position, value in zip(test, predicted):
+            out[position] = value
+    return out
+
+
 def cross_predict(
     items: Sequence[Example],
     alpha: float = DEFAULT_ALPHA,
     rounds: int = DEFAULT_ROUNDS,
+    alphas: Optional[Sequence[float]] = None,
 ) -> List[Optional[float]]:
     """A prediction for each example from a model that never saw its session.
 
     An entry stays None when the other sessions hold no exact example, which
     happens to the only full discharge collected so far. Scoring must skip
     those rows, not fill them.
+
+    With `alphas`, `alpha` is ignored and each held out session gets the alpha
+    `choose_alpha` picks on the other sessions only.
     """
-    out: List[Optional[float]] = [None] * len(items)
-    for _, train, test in session_folds(items):
-        kept = [items[p] for p in train]
-        if all(item.censored for item in kept):
-            continue
-        model = fit(kept, alpha, rounds)
-        predicted = model.predict([items[p].features for p in test])
-        for position, value in zip(test, predicted):
-            out[position] = value
-    return out
+    if alphas is None:
+        return _held_out(items, lambda kept: fit(kept, alpha, rounds))
+    return _held_out(
+        items, lambda kept: fit(kept, choose_alpha(kept, alphas, rounds), rounds)
+    )
