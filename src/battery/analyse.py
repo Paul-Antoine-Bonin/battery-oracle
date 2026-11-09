@@ -2,6 +2,7 @@
 
     python -m battery.analyse
     python -m battery.analyse --band 20
+    python -m battery.analyse --tune
 
 This does in one command what `battery.series build`, `battery.evaluate
 report`, `battery.chart` and `battery.results` do one after the other:
@@ -17,6 +18,11 @@ cannot disagree.
 
 The table is read back from the file it was just written to, exactly as the
 separate commands read it, so both paths score the same rows.
+
+By default the ridge strength is fixed. `--tune` picks it from
+`battery.model.ALPHA_GRID` for every held out session, on the other sessions
+only. That refits the model many times over, so it is slower, and with fewer
+than three full discharges it changes nothing.
 
 With no scored row yet, the table and the report are still produced, the chart
 and the summary are not, and the command exits with 1. Everything it writes
@@ -47,10 +53,11 @@ def analyse(
     results: Path = DEFAULT_RESULTS,
     band_pct: int = DEFAULT_BAND_PCT,
     echo: Callable[[str], None] = print,
+    tune: bool = False,
 ) -> bool:
     """Run every step and report through `echo`. True when something was scored."""
     # Imported here so the rest of the module loads without the analysis extra.
-    from .model import cross_predict
+    from .model import ALPHA_GRID, cross_predict
 
     series = load_series(root=root)
     written = write_csv(series.rows, table)
@@ -65,7 +72,12 @@ def analyse(
 
     rows = read_csv(written)
     items = examples(rows)
-    predicted = cross_predict(items)
+    if tune:
+        grid = ", ".join(f"{alpha:g}" for alpha in ALPHA_GRID)
+        echo(f"ridge strength chosen per held out session from {grid}")
+        predicted = cross_predict(items, alphas=ALPHA_GRID)
+    else:
+        predicted = cross_predict(items)
     for line in report_lines(rows, items, predicted, band_pct):
         echo(line)
     echo("")
@@ -87,9 +99,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--chart", type=Path, default=DEFAULT_CHART)
     parser.add_argument("--results", type=Path, default=DEFAULT_RESULTS)
     parser.add_argument("--band", type=int, default=DEFAULT_BAND_PCT)
+    parser.add_argument(
+        "--tune",
+        action="store_true",
+        help="choose the ridge strength per held out session",
+    )
     args = parser.parse_args(argv)
 
-    ok = analyse(args.root, args.table, args.chart, args.results, args.band)
+    ok = analyse(
+        args.root, args.table, args.chart, args.results, args.band, tune=args.tune
+    )
     return 0 if ok else 1
 
 

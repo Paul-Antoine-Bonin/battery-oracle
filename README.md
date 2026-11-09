@@ -265,6 +265,12 @@ predicted = cross_predict(items)   # one per example, None where it cannot be fi
   from these predictions, never from rows the model was fitted on.
 - With only one full discharge collected, its rows get no prediction, because the
   other sessions hold no exact row to fit on. Those entries stay None.
+- The ridge strength is fixed unless `cross_predict` gets `alphas`. Then
+  `choose_alpha` picks one for each held out session, scoring every candidate by
+  holding out one session at a time among the other sessions, on exact rows only.
+  The session being predicted never weighs on its own alpha. With fewer than three
+  full discharges there is nothing to score the candidates on, and the default
+  stays.
 
 ## Scoring against macOS
 
@@ -328,12 +334,15 @@ python -m battery.results --band 20 --out results.md
 ```bash
 python -m battery.analyse                     # table, report, chart and summary
 python -m battery.analyse --band 20
+python -m battery.analyse --tune              # choose the ridge strength too
 ```
 
 - Rebuilds the table from `data/raw/`, prints the number of full discharges so far and
   the report, then writes the chart and the summary to their usual places.
 - The model is fitted once and all three outputs come from the same held out
   predictions. Running the separate commands fits it once each.
+- `--tune` chooses the ridge strength per held out session as described above. It
+  refits the model many times over, so it is slower than the default.
 - With nothing scored yet it still writes the table and prints the report, writes no
   chart and no summary, and exits with 1.
 - Its test starts from raw command text in the store, with the current in the

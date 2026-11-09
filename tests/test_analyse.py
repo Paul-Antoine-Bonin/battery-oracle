@@ -145,7 +145,7 @@ def test_report_chart_and_summary_come_from_one_fit(tmp_path, store, monkeypatch
     calls = []
     real = model.cross_predict
     monkeypatch.setattr(
-        model, "cross_predict", lambda items: calls.append(1) or real(items)
+        model, "cross_predict", lambda items, **kw: calls.append(1) or real(items, **kw)
     )
 
     analyse(store, echo=lambda line: None, **paths(tmp_path))
@@ -171,3 +171,37 @@ def test_an_empty_store_writes_the_table_and_nothing_else(tmp_path, capsys):
     assert not out["chart"].exists()
     assert not out["results"].exists()
     assert "no scored rows yet" in capsys.readouterr().out
+
+
+def test_tuning_chooses_the_alpha_inside_each_fold(tmp_path, store, monkeypatch):
+    pytest.importorskip("sklearn")
+    pytest.importorskip("matplotlib")
+    from battery import model
+
+    seen = []
+    real = model.cross_predict
+    monkeypatch.setattr(
+        model, "cross_predict", lambda items, **kw: seen.append(kw) or real(items, **kw)
+    )
+    lines = []
+
+    assert analyse(store, echo=lines.append, tune=True, **paths(tmp_path))
+
+    assert seen == [{"alphas": model.ALPHA_GRID}]
+    assert any(line.startswith("ridge strength chosen per held out") for line in lines)
+
+
+def test_without_tuning_the_alpha_stays_fixed(tmp_path, store, monkeypatch):
+    pytest.importorskip("sklearn")
+    pytest.importorskip("matplotlib")
+    from battery import model
+
+    seen = []
+    real = model.cross_predict
+    monkeypatch.setattr(
+        model, "cross_predict", lambda items, **kw: seen.append(kw) or real(items, **kw)
+    )
+
+    analyse(store, echo=lambda line: None, **paths(tmp_path))
+
+    assert seen == [{}]
