@@ -7,8 +7,10 @@ import pytest
 from battery.dataset import Example
 from battery.evaluate import (
     Scored,
+    against_trend,
     bound_misses,
     by_charge,
+    by_situation,
     compare,
     main,
     per_session,
@@ -19,8 +21,10 @@ from battery.series import write_csv
 from battery.target import target_fields
 
 
-def example(index, session=1, minutes=100.0, censored=False):
-    return Example(index, session, {}, minutes, censored)
+def example(index, session=1, minutes=100.0, censored=False, trend=None):
+    return Example(
+        index, session, {"trend_remaining_min": trend}, minutes, censored
+    )
 
 
 def scored(session, actual, model, macos, charge=0.5):
@@ -200,6 +204,83 @@ def test_an_unusable_band_is_refused(band_pct):
         by_charge([], band_pct)
 
 
+def situation(rows, name):
+    return next(g for g in by_situation(rows, placed(rows)) if g["name"] == name)
+
+
+def placed(rows):
+    """One scored row per table row. Model off by 10, macOS off by 30."""
+    return [Scored(i, i + 1, 0.5, 100.0, 110.0, 130.0) for i in range(len(rows))]
+
+
+@pytest.mark.parametrize(
+    "load, name",
+    [
+        (0.0, "light load"),
+        (0.2499, "light load"),
+        (0.25, "moderate load"),
+        (0.7499, "moderate load"),
+        (0.75, "heavy load"),
+        (3.0, "heavy load"),
+    ],
+)
+def test_a_load_limit_belongs_to_the_group_above_it(load, name):
+    assert situation([{"load_per_cpu": load}], name)["rows"] == 1
+
+
+def test_a_situation_reports_both_errors_and_its_sessions():
+    group = situation([{"wifi_on": True}, {"wifi_on": True}], "wifi on")
+
+    assert group == {
+        "name": "wifi on",
+        "rows": 2,
+        "sessions": 2,
+        "model_mae": 10.0,
+        "macos_mae": 30.0,
+    }
+
+
+def test_wifi_off_is_a_situation_and_a_missing_reading_is_not():
+    rows = [{"wifi_on": False}, {"wifi_on": None}]
+
+    assert [g["name"] for g in by_situation(rows, placed(rows))] == ["wifi off"]
+
+
+def test_a_dark_panel_counts_as_dim_and_no_panel_counts_as_nothing():
+    rows = [{"brightness_fraction": 0.0}, {"brightness_fraction": None}]
+
+    out = by_situation(rows, placed(rows))
+
+    assert [(g["name"], g["rows"]) for g in out] == [("dim display", 1)]
+
+
+def test_one_row_can_sit_in_several_situations():
+    rows = [{"load_per_cpu": 1.0, "brightness_fraction": 0.8, "wifi_on": True}]
+
+    assert [g["name"] for g in by_situation(rows, placed(rows))] == [
+        "heavy load",
+        "bright display",
+        "wifi on",
+    ]
+
+
+def test_situations_are_looked_up_by_the_row_index_of_each_scored_row():
+    rows = [{"load_per_cpu": 0.1}, {"load_per_cpu": 0.9}]
+
+    out = by_situation(rows, [Scored(1, 1, 0.5, 100.0, 110.0, 130.0)])
+
+    assert [g["name"] for g in out] == ["heavy load"]
+
+
+def test_report_lists_the_situations_after_the_bands():
+    rows = [{"macos_remaining_min": 90, "charge_fraction": 0.4, "wifi_on": True}]
+
+    lines = report_lines(rows, [example(0)], [110.0])
+
+    assert lines.index("situation         rows    sessions  model     macos") > 0
+    assert lines[-1].split() == ["wifi", "on", "1", "1", "10.0", "10.0"]
+
+
 def test_report_shows_both_estimators_and_the_bands():
     rows = [{"macos_remaining_min": 90, "charge_fraction": 0.45}]
 
@@ -270,3 +351,44 @@ def test_the_report_command_refuses_a_bad_band_before_reading_the_table(
         main(["--table", str(tmp_path / "missing.csv"), "report", "--band", band])
     assert stopped.value.code == 2
     assert "--band" in capsys.readouterr().err
+
+
+def test_the_trend_check_uses_only_rows_with_an_extrapolation():
+    items = [
+        example(0, session=1, trend=130.0),
+        example(1, session=1),  # too little history for a rate
+        example(2, session=2, trend=80.0),
+    ]
+    rows = [
+        Scored(0, 1, 0.5, 100.0, 110.0, 90.0),
+        Scored(1, 1, 0.5, 100.0, 200.0, 90.0),
+        Scored(2, 2, 0.5, 100.0, 104.0, 90.0),
+    ]
+
+    out = against_trend(items, rows)
+
+    assert out == {"rows": 2, "sessions": 2, "model_mae": 7.0, "trend_mae": 25.0}
+
+
+def test_the_trend_check_is_empty_without_any_extrapolation():
+    out = against_trend([example(0)], [Scored(0, 1, 0.5, 100.0, 110.0, 90.0)])
+
+    assert out == {"rows": 0, "sessions": 0, "model_mae": None, "trend_mae": None}
+
+
+def test_the_trend_check_ignores_rows_it_has_no_example_for():
+    out = against_trend([], [Scored(0, 1, 0.5, 100.0, 110.0, 90.0)])
+
+    assert out["rows"] == 0
+
+
+def test_report_shows_the_trend_check_before_the_bands():
+    rows = [{"macos_remaining_min": 90, "charge_fraction": 0.45}]
+
+    lines = report_lines(rows, [example(0, trend=120.0)], [104.0])
+
+    assert "trend_rows              1" in lines
+    assert "model_mae_on_trend_min  4.0" in lines
+    assert "trend_mae_min           20.0" in lines
+    header = next(i for i, line in enumerate(lines) if line.startswith("charge"))
+    assert lines.index("trend_mae_min           20.0") < header

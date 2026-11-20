@@ -14,6 +14,12 @@ how much evidence there is. The number of sessions is what matters. A long
 session also weighs more than a short one in a mean over rows, so `compare`
 gives a mean over sessions as well, and how many sessions each estimator won.
 
+The report also checks the model against the plainest alternative, the
+charge left divided by the rate it fell over the last half hour. If the fitted
+model does not beat that, it is not worth having, whatever it does against
+macOS. `against_trend` scores both on the same rows, the ones where that
+extrapolation exists.
+
 Scoring needs only the standard library. The `report` command needs the
 `analysis` extra, because it has to fit the model first.
 """
@@ -30,6 +36,13 @@ from typing import Dict, List, Optional, Sequence
 from .dataset import Example, example_counts, examples
 
 DEFAULT_BAND_PCT = 10
+
+# Limits of the situations in `by_situation`. They are round numbers picked
+# before any real score exists, so they cannot have been tuned to favour either
+# estimator.
+LIGHT_LOAD_PER_CPU = 0.25
+HEAVY_LOAD_PER_CPU = 0.75
+BRIGHT_FRACTION = 0.5
 
 
 @dataclass(frozen=True)
@@ -128,6 +141,44 @@ def compare(scored: Sequence[Scored]) -> dict:
     }
 
 
+def against_trend(
+    items: Sequence[Example], scored: Sequence[Scored]
+) -> dict:
+    """The model against the trend extrapolation, on the rows that have one.
+
+    The extrapolation is the `trend_remaining_min` feature, used as it is with
+    no cap, since that is what anyone would get by dividing the charge left by
+    the recent rate. A row whose session has under the minimum history has no
+    rate, so it has no extrapolation and is left out on both sides.
+    """
+    by_index = {item.index: item for item in items}
+    model_errors, trend_errors, sessions = [], [], set()
+    for row in scored:
+        item = by_index.get(row.index)
+        trend = None if item is None else item.features.get("trend_remaining_min")
+        if trend is None:
+            continue
+        model_errors.append(row.model_error)
+        trend_errors.append(abs(trend - row.actual_min))
+        sessions.add(row.session)
+    return {
+        "rows": len(model_errors),
+        "sessions": len(sessions),
+        "model_mae": _mae(model_errors),
+        "trend_mae": _mae(trend_errors),
+    }
+
+
+def _group_errors(group: Sequence[Scored]) -> dict:
+    """How much a group of rows rests on, and the row mean of each estimator."""
+    return {
+        "rows": len(group),
+        "sessions": len({item.session for item in group}),
+        "model_mae": _mae([item.model_error for item in group]),
+        "macos_mae": _mae([item.macos_error for item in group]),
+    }
+
+
 def by_charge(
     scored: Sequence[Scored], band_pct: int = DEFAULT_BAND_PCT
 ) -> List[dict]:
@@ -151,13 +202,62 @@ def by_charge(
         {
             "low_pct": band * band_pct,
             "high_pct": min((band + 1) * band_pct, 100),
-            "rows": len(group),
-            "sessions": len({item.session for item in group}),
-            "model_mae": _mae([item.model_error for item in group]),
-            "macos_mae": _mae([item.macos_error for item in group]),
+            **_group_errors(group),
         }
         for band, group in sorted(groups.items())
     ]
+
+
+def _load_group(row: dict) -> Optional[str]:
+    load = row.get("load_per_cpu")
+    if load is None:
+        return None
+    if load < LIGHT_LOAD_PER_CPU:
+        return "light load"
+    return "moderate load" if load < HEAVY_LOAD_PER_CPU else "heavy load"
+
+
+def _brightness_group(row: dict) -> Optional[str]:
+    brightness = row.get("brightness_fraction")
+    if brightness is None:
+        return None
+    return "dim display" if brightness < BRIGHT_FRACTION else "bright display"
+
+
+def _wifi_group(row: dict) -> Optional[str]:
+    wifi = row.get("wifi_on")
+    if wifi is None:
+        return None
+    return "wifi on" if wifi else "wifi off"
+
+
+SITUATIONS = (
+    (_load_group, ("light load", "moderate load", "heavy load")),
+    (_brightness_group, ("dim display", "bright display")),
+    (_wifi_group, ("wifi on", "wifi off")),
+)
+
+
+def by_situation(rows: Sequence[dict], scored: Sequence[Scored]) -> List[dict]:
+    """Both estimators per usage situation, skipping situations with no row.
+
+    A situation is read from the row being scored, so a session can land in
+    several of them. A row missing a reading is left out of that split only.
+    The splits overlap, so their row counts do not add up to the total.
+    """
+    out = []
+    for group_of, names in SITUATIONS:
+        groups: Dict[str, List[Scored]] = {}
+        for item in scored:
+            name = group_of(rows[item.index])
+            if name is not None:
+                groups.setdefault(name, []).append(item)
+        out.extend(
+            {"name": name, **_group_errors(groups[name])}
+            for name in names
+            if name in groups
+        )
+    return out
 
 
 def bound_misses(
@@ -197,6 +297,7 @@ def report_lines(
     scored = scored_rows(rows, items, predicted)
     totals = compare(scored)
     misses = bound_misses(rows, items, predicted)
+    trend = against_trend(items, scored)
     lines = [
         f"{'examples':<24}{counts['examples']}",
         f"{'sessions_exact':<24}{counts['sessions_exact']}",
@@ -211,6 +312,11 @@ def report_lines(
         f"{'censored_rows':<24}{misses['rows']}",
         f"{'model_below_bound':<24}{misses['model_below']}",
         f"{'macos_below_bound':<24}{misses['macos_below']}",
+        "",
+        f"{'trend_rows':<24}{trend['rows']}",
+        f"{'trend_sessions':<24}{trend['sessions']}",
+        f"{'model_mae_on_trend_min':<24}{_minutes(trend['model_mae'])}",
+        f"{'trend_mae_min':<24}{_minutes(trend['trend_mae'])}",
     ]
     bands = by_charge(scored, band_pct)
     if bands:
@@ -223,6 +329,17 @@ def report_lines(
         lines.append(
             f"{name:<12}{band['rows']:<8}{band['sessions']:<10}"
             f"{_minutes(band['model_mae']):<10}{_minutes(band['macos_mae']):<10}".rstrip()
+        )
+    situations = by_situation(rows, scored)
+    if situations:
+        lines.append("")
+        lines.append(
+            f"{'situation':<18}{'rows':<8}{'sessions':<10}{'model':<10}{'macos'}"
+        )
+    for group in situations:
+        lines.append(
+            f"{group['name']:<18}{group['rows']:<8}{group['sessions']:<10}"
+            f"{_minutes(group['model_mae']):<10}{_minutes(group['macos_mae']):<10}".rstrip()
         )
     return lines
 

@@ -9,8 +9,8 @@ trained and then compared against that baseline honestly.
 The collector works and is ready to run, stored samples parse into one time series
 table, and each row carries the macOS estimate as the baseline to beat and the time the
 battery actually lasted, reconstructed afterwards. The regression model is written and
-tested on synthetic sessions only, as is the scoring against macOS. Neither has run on
-real data, so there are no results yet.
+tested on synthetic sessions only, as are the scoring against macOS, its chart and the written summary. None
+of it has run on real data, so there are no results yet.
 
 ## Everything stays on this machine
 
@@ -265,6 +265,12 @@ predicted = cross_predict(items)   # one per example, None where it cannot be fi
   from these predictions, never from rows the model was fitted on.
 - With only one full discharge collected, its rows get no prediction, because the
   other sessions hold no exact row to fit on. Those entries stay None.
+- The ridge strength is fixed unless `cross_predict` gets `alphas`. Then
+  `choose_alpha` picks one for each held out session, scoring every candidate by
+  holding out one session at a time among the other sessions, on exact rows only.
+  The session being predicted never weighs on its own alpha. With fewer than three
+  full discharges there is nothing to score the candidates on, and the default
+  stays.
 
 ## Scoring against macOS
 
@@ -282,7 +288,65 @@ python -m battery.evaluate report --band 20
   the battery really lasted (`model_below_bound`, `macos_below_bound`).
 - Rows of a session are near copies, so `scored_sessions` is the real sample size. The
   session means give each session one vote, where the row means favour long sessions.
-- The charge table is what the error chart will plot, and it shows where macOS wins.
+- The model is also scored against the plainest alternative, the charge left divided by
+  the rate it fell over the last 30 minutes (`trend_mae_min`, next to
+  `model_mae_on_trend_min` on the same rows). A model that does not beat that is not
+  worth fitting, whatever it does against macOS. Rows without enough history for a
+  rate are left out of that pair only.
+- The charge table shows where macOS wins, and the chart below draws the same numbers.
+- A second table splits the same rows by situation: light, moderate or heavy load per
+  CPU, dim or bright display, Wi-Fi on or off. A row missing a reading is left out of
+  that split only. The splits overlap, so their rows do not add up to the total.
+
+```bash
+python -m battery.chart                       # data/charts/error_by_charge.png
+python -m battery.chart --band 20 --out error.png
+```
+
+- One pair of bars per charge band, the model and macOS, on one axis in minutes.
+- Every band keeps its slot. A band with no scored row stays blank instead of being
+  closed up, so the chart shows where the data runs out.
+- Each band is labelled with its session count, and the subtitle gives the totals. A
+  bar resting on one session says little, whichever estimator it favours.
+- With nothing scored the command says so and writes no file.
+- The chart lands under `data/`, git-ignored like everything else derived from the
+  samples.
+
+```bash
+python -m battery.results                     # data/results.md
+python -m battery.results --band 20 --out results.md
+```
+
+- This writes the summary for this README from the scores, so the sentences follow the
+  numbers. It is a draft to read and copy over. Nothing edits the README.
+- The headline uses the means over sessions and names whichever estimator came out
+  ahead, macOS included. Every band and situation is then listed under where the model
+  wins, where macOS wins, or too little data.
+- A band or situation under three sessions gets no verdict. Under three sessions in
+  total, the summary opens by saying it is too early to call.
+- A last section says whether the model beat the plain trend extrapolation on the rows
+  that have one, with the same three session rule. When the trend wins, it says the
+  fit adds nothing over dividing the charge left by the recent rate.
+- With nothing scored the command says so and writes no file.
+
+### All of it in one command
+
+```bash
+python -m battery.analyse                     # table, report, chart and summary
+python -m battery.analyse --band 20
+python -m battery.analyse --tune              # choose the ridge strength too
+```
+
+- Rebuilds the table from `data/raw/`, prints the number of full discharges so far and
+  the report, then writes the chart and the summary to their usual places.
+- The model is fitted once and all three outputs come from the same held out
+  predictions. Running the separate commands fits it once each.
+- `--tune` chooses the ridge strength per held out session as described above. It
+  refits the model many times over, so it is slower than the default.
+- With nothing scored yet it still writes the table and prints the report, writes no
+  chart and no summary, and exits with 1.
+- Its test starts from raw command text in the store, with the current in the
+  unsigned form `ioreg` prints, and checks that a summary comes out the other end.
 
 The code is tested on made up numbers only. There are no real scores yet.
 
