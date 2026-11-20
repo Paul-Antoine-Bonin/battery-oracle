@@ -3,6 +3,9 @@
 import plistlib
 from pathlib import Path
 
+import pytest
+
+from battery import schedule
 from battery.schedule import LABEL, build_plist, write_plist
 
 
@@ -62,3 +65,21 @@ def test_written_plist_parses_back(tmp_path):
 def test_writing_creates_the_log_directory(tmp_path):
     write_plist(definition(tmp_path), path=tmp_path / "agent.plist")
     assert (tmp_path / "data" / "logs").is_dir()
+
+
+@pytest.mark.parametrize("command", ["install", "show"])
+@pytest.mark.parametrize("interval", ["0", "-300", "2.5", "often"])
+def test_an_unusable_interval_is_refused(monkeypatch, capsys, command, interval):
+    monkeypatch.setattr(schedule, "install", lambda *args: pytest.fail("installed"))
+
+    with pytest.raises(SystemExit) as stopped:
+        schedule.main([command, f"--interval={interval}"])
+
+    assert stopped.value.code == 2
+    assert "--interval" in capsys.readouterr().err
+
+
+def test_show_prints_a_valid_interval(tmp_path, capsys):
+    assert schedule.main(["show", "--interval", "600", "--repo", str(tmp_path)]) == 0
+    printed = plistlib.loads(capsys.readouterr().out.encode())
+    assert printed["StartInterval"] == 600
