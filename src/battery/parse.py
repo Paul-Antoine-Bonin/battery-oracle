@@ -50,12 +50,20 @@ def ioreg_fields(text: str) -> Dict[str, Value]:
     """Every top level `"Key" = value` pair of an `ioreg -w0` battery dump.
 
     With `-w0` a nested dict sits on its key's line, so it cannot shadow a top
-    level key of the same name. If a key appears twice, the first one wins.
+    level key of the same name. Keys of a child object are printed deeper, so
+    only lines indented like the first key are read. If a key appears twice,
+    the first one wins.
     """
     fields: Dict[str, Value] = {}
+    indent = None
     for line in text.splitlines():
         match = _IOREG_LINE.match(line)
-        if match and match.group(1) not in fields:
+        if not match:
+            continue
+        depth = len(line) - len(line.lstrip())
+        if indent is None:
+            indent = depth
+        if depth == indent and match.group(1) not in fields:
             fields[match.group(1)] = _ioreg_value(match.group(2))
     return fields
 
@@ -97,19 +105,28 @@ def _bool(fields: Dict[str, Value], key: str) -> Optional[bool]:
 
 
 def _capacities(fields: Dict[str, Value]):
-    """Current and maximum charge in mAh.
+    """Current and maximum charge in mAh, and the charge fraction.
 
     Apple silicon reports `CurrentCapacity` and `MaxCapacity` as a percentage
     (MaxCapacity is 100) and puts the mAh figures in `AppleRawCurrentCapacity`
     and `AppleRawMaxCapacity`. Intel Macs report mAh directly. The raw pair is
     preferred whenever it is there.
+
+    If only one of the raw fields is there, the machine is Apple silicon and
+    the other two are percentages. The fraction is still right, but there is
+    no mAh figure, so both mAh values stay None rather than holding a
+    percentage under an mAh name.
     """
-    current = _int(fields, "AppleRawCurrentCapacity")
-    maximum = _int(fields, "AppleRawMaxCapacity")
-    if current is None or maximum is None:
-        current = _int(fields, "CurrentCapacity")
-        maximum = _int(fields, "MaxCapacity")
-    return current, maximum
+    raw_current = _int(fields, "AppleRawCurrentCapacity")
+    raw_max = _int(fields, "AppleRawMaxCapacity")
+    current = _int(fields, "CurrentCapacity")
+    maximum = _int(fields, "MaxCapacity")
+    if raw_current is not None and raw_max is not None:
+        current, maximum = raw_current, raw_max
+    fraction = current / maximum if current is not None and maximum else None
+    if (raw_current is None) != (raw_max is None):
+        return None, None, fraction
+    return current, maximum, fraction
 
 
 def parse_ioreg(text: str) -> BatteryState:
@@ -117,10 +134,8 @@ def parse_ioreg(text: str) -> BatteryState:
     fields = ioreg_fields(text)
     state = BatteryState()
 
-    state.current_mah, state.max_mah = _capacities(fields)
+    state.current_mah, state.max_mah, state.charge_fraction = _capacities(fields)
     state.design_mah = _int(fields, "DesignCapacity")
-    if state.current_mah is not None and state.max_mah:
-        state.charge_fraction = state.current_mah / state.max_mah
     if state.max_mah is not None and state.design_mah:
         state.health_fraction = state.max_mah / state.design_mah
 
