@@ -137,6 +137,22 @@ def test_write_replaces_the_previous_table(tmp_path):
     assert not (tmp_path / "samples.csv.partial").exists()
 
 
+def test_a_failed_write_keeps_the_old_table_and_leaves_no_partial(tmp_path):
+    path = tmp_path / "samples.csv"
+    write_csv(build_series([sample(START)]).rows, path)
+    before = path.read_text(encoding="utf-8")
+
+    class Broken:
+        def get(self, column):
+            raise RuntimeError("cannot read this row")
+
+    with pytest.raises(RuntimeError):
+        write_csv([Broken()], path)
+
+    assert path.read_text(encoding="utf-8") == before
+    assert not (tmp_path / "samples.csv.partial").exists()
+
+
 def test_an_empty_series_still_writes_a_header(tmp_path):
     path = write_csv([], tmp_path / "samples.csv")
     assert path.read_text(encoding="utf-8").splitlines() == [",".join(COLUMNS)]
