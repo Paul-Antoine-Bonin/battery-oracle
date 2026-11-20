@@ -166,3 +166,18 @@ def test_order_is_checked_by_instant_not_by_text():
     first["sampled_at"] = paris.isoformat()
     rows = [first, row(0, 0.59)]
     assert [s.rows for s in find_sessions(rows)] == [[0, 1]]
+
+
+def test_zero_current_with_no_charger_is_not_discharging():
+    assert not is_discharging(
+        {"ioreg_ok": True, "external_connected": False, "amperage_ma": 0}
+    )
+
+
+def test_no_current_reading_falls_back_to_the_charger_flag():
+    assert is_discharging(
+        {"ioreg_ok": True, "external_connected": False, "amperage_ma": None}
+    )
+    assert not is_discharging(
+        {"ioreg_ok": True, "external_connected": None, "amperage_ma": None}
+    )

@@ -189,3 +189,9 @@ def test_foreground_app_script_fails_when_front_fails(tmp_path, monkeypatch):
 
     assert not result.ok
     assert "exit 1" in result.error
+
+
+def test_output_that_is_not_utf8_does_not_raise():
+    result = run_command(("/bin/sh", "-c", r"printf 'a\377b'"))
+    assert result.ok
+    assert result.stdout.startswith("a") and result.stdout.endswith("b")

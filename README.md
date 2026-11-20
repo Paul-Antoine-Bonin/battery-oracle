@@ -6,9 +6,11 @@ The macOS time-remaining estimate is unstable and often wrong. This repo collect
 the hardware actually reports, alongside the macOS estimate itself, so a model can be
 trained and then compared against that baseline honestly.
 
-No model yet. The collector works and is ready to run, stored samples parse into one
-time series table, and each row carries the macOS estimate as the baseline to beat and
-the time the battery actually lasted, reconstructed afterwards.
+The collector works and is ready to run, stored samples parse into one time series
+table, and each row carries the macOS estimate as the baseline to beat and the time the
+battery actually lasted, reconstructed afterwards. The regression model is written and
+tested on synthetic sessions only, as are the scoring against macOS, its chart and the written summary. None
+of it has run on real data, so there are no results yet.
 
 ## Everything stays on this machine
 
@@ -57,6 +59,9 @@ samples around a sleep are exactly the ones worth having.
 
 The plist is generated at install time and never committed, because it has to carry
 absolute paths to this checkout.
+
+The agent writes its output to `data/logs/collect.out` and `data/logs/collect.err`,
+git-ignored like the rest of `data/`. If samples stop appearing, look there first.
 
 ## What one sample contains
 
@@ -176,7 +181,7 @@ Then each row in a session gets its target, with `target_status` saying which ki
 
 | Status | Columns set |
 |---|---|
-| `exact` | `actual_remaining_min` and `empty_at`, the session ran out |
+| `exact` | `actual_remaining_min`, `empty_at` and `remaining_at_least_min`, the session ran out |
 | `censored` | `remaining_at_least_min` only, the session ended first |
 | `none` | nothing, the row is on a charger |
 
@@ -195,6 +200,158 @@ Then each row in a session gets its target, with `target_status` saying which ki
 
 `summary` prints `target_exact`, `target_censored` and `sessions_empty`, the number of
 full discharges collected so far.
+
+## Model features
+
+`battery.features` turns each discharging row into the inputs the regression model
+will be fitted on: the drain rate and the context at that moment.
+
+```python
+from battery.features import coverage, features
+from battery.series import read_csv
+
+rows = read_csv()
+items = features(rows)        # None for rows on a charger
+print(coverage(items))        # how often each feature has a value
+```
+
+- A feature only looks backwards: the row itself and earlier rows of the same
+  discharge session. Never a later row and never a target column, so the model is
+  scored on what it could have known live, like macOS.
+- `rate_mah_per_h` is the charge lost per hour over the last 30 minutes, measured from
+  the charge readings. `draw_ma` is the instant current. Both are kept, along with the
+  time to empty each one implies on its own (`trend_remaining_min`,
+  `instant_remaining_min`).
+- A rate needs at least 10 minutes of history in the session, so the first samples
+  after unplugging have none.
+- Context: `load_per_cpu`, `wifi_on`, `brightness_fraction`, `temperature_c` and
+  `hour_of_day`. The hour is read at the offset stored with the sample, and the
+  collector stores UTC, so it is not the local time of day. The foreground application is not a feature yet, since turning bundle
+  ids into categories is a choice better made with data in hand.
+- Missing values stay None. Filling them is the model's job.
+
+```bash
+python -m battery.features coverage   # per feature, how many rows have a value
+```
+
+It reads the table written by `battery.series build`. A feature that is almost never
+set is not worth fitting on, and this shows it before any model is trained.
+
+## The model
+
+`battery.dataset` pairs each discharging row with its target, and `battery.model` fits a
+ridge regression on those pairs. It needs the analysis dependencies:
+
+```bash
+pip install -e '.[analysis]'
+```
+
+```python
+from battery.dataset import examples
+from battery.model import cross_predict
+from battery.series import read_csv
+
+items = examples(read_csv())
+predicted = cross_predict(items)   # one per example, None where it cannot be fitted
+```
+
+- A plain linear model on purpose. Full discharges are rare, so there are few
+  independent sessions to learn from.
+- Missing values get the median of the training rows and a column saying they were
+  missing. `hour_of_day` becomes a sine and a cosine. The two remaining time features
+  are capped at a day, since they blow up on a nearly idle machine.
+- Censored rows count as lower bounds. The first fit uses exact rows alone. Each
+  censored row then takes the larger of its prediction and its bound as a target, and
+  the model is refitted for up to five rounds.
+- `cross_predict` holds out one whole session at a time. Rows of a session are near
+  copies of each other, so a random split would flatter the model. A score must come
+  from these predictions, never from rows the model was fitted on.
+- With only one full discharge collected, its rows get no prediction, because the
+  other sessions hold no exact row to fit on. Those entries stay None.
+- The ridge strength is fixed unless `cross_predict` gets `alphas`. Then
+  `choose_alpha` picks one for each held out session, scoring every candidate by
+  holding out one session at a time among the other sessions, on exact rows only.
+  The session being predicted never weighs on its own alpha. With fewer than three
+  full discharges there is nothing to score the candidates on, and the default
+  stays.
+
+## Scoring against macOS
+
+`battery.evaluate` compares the held out predictions with the macOS estimate:
+
+```bash
+python -m battery.evaluate report             # 10 point charge bands
+python -m battery.evaluate report --band 20
+```
+
+- A row is scored only when it has the real outcome, a held out prediction and a macOS
+  estimate. A row missing one of them is dropped for both sides, so both estimators
+  answer the same questions.
+- Censored rows give no error. They only count how often an estimate fell below what
+  the battery really lasted (`model_below_bound`, `macos_below_bound`).
+- Rows of a session are near copies, so `scored_sessions` is the real sample size. The
+  session means give each session one vote, where the row means favour long sessions.
+- The model is also scored against the plainest alternative, the charge left divided by
+  the rate it fell over the last 30 minutes (`trend_mae_min`, next to
+  `model_mae_on_trend_min` on the same rows). A model that does not beat that is not
+  worth fitting, whatever it does against macOS. Rows without enough history for a
+  rate are left out of that pair only.
+- The charge table shows where macOS wins, and the chart below draws the same numbers.
+- A second table splits the same rows by situation: light, moderate or heavy load per
+  CPU, dim or bright display, Wi-Fi on or off. A row missing a reading is left out of
+  that split only. The splits overlap, so their rows do not add up to the total.
+
+```bash
+python -m battery.chart                       # data/charts/error_by_charge.png
+python -m battery.chart --band 20 --out error.png
+```
+
+- One pair of bars per charge band, the model and macOS, on one axis in minutes.
+- Every band keeps its slot. A band with no scored row stays blank instead of being
+  closed up, so the chart shows where the data runs out.
+- Each band is labelled with its session count, and the subtitle gives the totals. A
+  bar resting on one session says little, whichever estimator it favours.
+- With nothing scored the command says so and writes no file.
+- The chart lands under `data/`, git-ignored like everything else derived from the
+  samples.
+
+```bash
+python -m battery.results                     # data/results.md
+python -m battery.results --band 20 --out results.md
+```
+
+- This writes the summary for this README from the scores, so the sentences follow the
+  numbers. It is a draft to read and copy over. Nothing edits the README.
+- The headline uses the means over sessions and names whichever estimator came out
+  ahead, macOS included. Every band and situation is then listed under where the model
+  wins, where macOS wins, or too little data.
+- A band or situation under three sessions gets no verdict. Under three sessions in
+  total, the summary opens by saying it is too early to call.
+- A last section says whether the model beat the plain trend extrapolation on the rows
+  that have one, with the same three session rule. When the trend wins, it says the
+  fit adds nothing over dividing the charge left by the recent rate.
+- With nothing scored the command says so and writes no file.
+
+### All of it in one command
+
+```bash
+python -m battery.analyse                     # table, report, chart and summary
+python -m battery.analyse --band 20
+python -m battery.analyse --tune              # choose the ridge strength too
+```
+
+- Rebuilds the table from `data/raw/`, prints the number of full discharges so far and
+  the report, then writes the chart and the summary to their usual places.
+- The model is fitted once and all three outputs come from the same held out
+  predictions. Running the separate commands fits it once each.
+- `--tune` chooses the ridge strength per held out session as described above. It
+  refits the model many times over, so it is slower than the default.
+- With nothing scored yet it still writes the table and prints the report, writes no
+  chart and no summary, and exits with 1.
+- Its test starts from raw command text in the store, with the current in the
+  unsigned form `ioreg` prints, and checks that a summary comes out the other end.
+
+The code is tested on made up numbers only. There are no real scores yet.
 
 ## Verified on this machine
 
@@ -217,7 +374,12 @@ capacity.
 ## Run the tests
 
 ```bash
+pip install -e '.[dev]'
 pytest
 ```
+
+The tests run on fixtures under `tests/` and never call `pmset` or `ioreg`, so they
+pass on any system. `tests/test_model.py` is skipped unless the `analysis` extra is
+installed too.
 
 Roadmap and progress: [TODO.md](TODO.md)

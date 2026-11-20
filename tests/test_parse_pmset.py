@@ -1,5 +1,7 @@
 """Tests for the pmset parser and the per-sample row, on synthetic fixtures."""
 
+import pytest
+
 from pathlib import Path
 
 from battery.parse import parse_pmset, parse_sample
@@ -113,3 +115,20 @@ def test_every_row_has_the_same_keys():
 def test_a_sample_without_commands():
     row = parse_sample({"sampled_at": "2026-08-16T20:00:00+00:00"})
     assert row["ioreg_ok"] is False and row["pmset_ok"] is False
+
+
+@pytest.mark.parametrize(
+    "commands",
+    [
+        None,
+        [],
+        {"pmset_batt": "not a result", "ioreg_battery": None},
+        {"pmset_batt": {"ok": True, "stdout": None}},
+        {"cpu_load": {"ok": True, "stdout": 12}},
+    ],
+)
+def test_commands_of_the_wrong_shape_leave_the_row_empty(commands):
+    row = parse_sample({"sampled_at": "2026-08-16T20:00:00+00:00", "commands": commands})
+    assert row["macos_percent"] is None
+    assert row["current_mah"] is None
+    assert row["load_1m"] is None
