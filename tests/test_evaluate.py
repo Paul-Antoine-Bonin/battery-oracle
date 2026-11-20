@@ -343,6 +343,16 @@ def test_the_report_command_says_when_there_is_no_table(tmp_path, capsys):
     assert "no table" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("band", ["0", "101", "ten"])
+def test_the_report_command_refuses_a_bad_band_before_reading_the_table(
+    tmp_path, capsys, band
+):
+    with pytest.raises(SystemExit) as stopped:
+        main(["--table", str(tmp_path / "missing.csv"), "report", "--band", band])
+    assert stopped.value.code == 2
+    assert "--band" in capsys.readouterr().err
+
+
 def test_the_trend_check_uses_only_rows_with_an_extrapolation():
     items = [
         example(0, session=1, trend=130.0),
